@@ -5,7 +5,7 @@
 **University:** University of Melbourne
 **Team Members:** [Yiming Pan], [Ruicheng Yao], [Caleb Lee]
 
----
+---   
 
 ## Business Problem
 
@@ -24,10 +24,8 @@ what question you are answering, why it matters, and what methods you plan to us
 
 | File | Description | Size |
 |------|-------------|------|
-| `business-establishments-and-jobs-data-by-business-size-and-anzsic.csv` | Every individual business by location, address, and industry
-classification, by census year (~5 variables) | ~924 KB |
-| `rbusiness-establishments-with-address-and-industry-classification.csv` | Aggregated counts of establishments and jobs by CLUE
-area, industry sector, and business size class | ~75 MB |
+| `business-establishments-and-jobs-data-by-business-size-and-anzsic.csv` | Individual Business and industry classification| ~924 KB |
+| `rbusiness-establishments-with-address-and-industry-classification.csv` | Aggregated counts of establishments and jobs | ~75 MB |
 
 > **Note:** Data files are not committed to this repository due to size.
 > Download from: [https://github.com/ruichengy-ops/CMCE30005-Group-5.git]
