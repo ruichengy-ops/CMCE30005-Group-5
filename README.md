@@ -1,9 +1,9 @@
 # CMCE30005 Business Analytics Challenge
-## [CMCE30005-Group-5] - [Your Dataset Name]
+## [CMCE30005-Group-5] - [Business establishments in Melbourne Project Brief]
 
 **Subject:** CMCE30005 Business Analytics Challenge, Semester 2 2026
 **University:** University of Melbourne
-**Team Members:** [YIMING PAN], [Name 2], [Name 3], [Name 4]
+**Team Members:** [Yiming Pan], [Ruicheng Yao], [Caleb Lee]
 
 ---
 
@@ -24,12 +24,13 @@ what question you are answering, why it matters, and what methods you plan to us
 
 | File | Description | Size |
 |------|-------------|------|
-| `listings_all.csv` | Full listing details (~75 variables) | ~50 MB |
-| `reviews_all.csv` | Guest review text | ~200 MB |
-| `calendar_all.csv` | Daily availability and pricing | ~1 GB |
+| `business-establishments-and-jobs-data-by-business-size-and-anzsic.csv` | Every individual business by location, address, and industry
+classification, by census year (~5 variables) | ~924 KB |
+| `rbusiness-establishments-with-address-and-industry-classification.csv` | Aggregated counts of establishments and jobs by CLUE
+area, industry sector, and business size class | ~75 MB |
 
 > **Note:** Data files are not committed to this repository due to size.
-> Download from: [insert download URL or instructions]
+> Download from: [https://github.com/ruichengy-ops/CMCE30005-Group-5.git]
 
 ---
 
