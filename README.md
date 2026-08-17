@@ -17,7 +17,9 @@ what question you are answering, why it matters, and what methods you plan to us
 ## Dataset
 
 **Dataset name:** [e.g., Airbnb Melbourne - June 2026 Snapshot]
+
 **Source:** [e.g., Inside Airbnb - http://insideairbnb.com/]
+
 **Coverage:** [e.g., All active Airbnb listings in Melbourne as of 16 June 2026]
 
 ### Data Files
