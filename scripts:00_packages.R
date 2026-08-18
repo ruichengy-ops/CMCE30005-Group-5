@@ -31,5 +31,18 @@ library(ggcorrplot)
 library(scales)
 library(patchwork)
 
-# Session info (for reproducibility)
+# Session info (for reproducibility) s  
 sessionInfo()
+
+# Preliminary data exploration
+BE_jobs_size <- read.csv("business-establishments-and-jobs-data-by-business-size-and-anzsic.csv")
+BE_add_indu <- read.csv("business-establishments-with-address-and-industry-classification.csv")
+
+glimpse(BE_jobs_size) # Small one (Aggregated bby business size)
+glimpse(BE_add_indu) # Big one (All businesses)
+
+locations <- BE_add_indu |> 
+  group_by(clue_small_area) |>
+  summarise(n = n())
+
+View(locations)
