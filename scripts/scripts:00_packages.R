@@ -2,8 +2,8 @@
 # CMCE30005 Business Analytics Challenge
 # Script: 00_packages.R
 # Purpose: Install and load all packages required for this project
-# Author: [Your team name]
-# Date: [Today's date]
+# Author: [CMCE30005-Group-5]
+# Date: [13/08/2026]
 # ============================================================
 
 # Install packages (run once - comment out after installation)
