@@ -18,11 +18,13 @@ what question you are answering, why it matters, and what methods you plan to us
 
 ## Dataset
 
-**Dataset name:** [e.g., Airbnb Melbourne - June 2026 Snapshot]
+**Dataset name:** [business-establishments-and-jobs-data-by-business-size-and-anzsic.csv]
 
-**Source:** [e.g., Inside Airbnb - http://insideairbnb.com/]
+                  [business-establishments-with-address-and-industry-classification.csv]
 
-**Coverage:** [e.g., All active Airbnb listings in Melbourne as of 16 June 2026]
+**Source:** [City of Melbourne Open Data, https://data.melbourne.vic.gov.au/pages/home/]
+
+**Coverage:** [Individual Business and Aggregated Counts of Establishments and Jobs]
 
 ### Data Files
 
