@@ -18,9 +18,7 @@ what question you are answering, why it matters, and what methods you plan to us
 
 ## Dataset
 
-**Dataset name:** [business-establishments-and-jobs-data-by-business-size-and-anzsic.csv]
-
-                  [business-establishments-with-address-and-industry-classification.csv]
+**Dataset name:** [business-establishments-and-jobs-data-by-business-size-and-anzsic.csv] [business-establishments-with-address-and-industry-classification.csv]
 
 **Source:** [City of Melbourne Open Data, https://data.melbourne.vic.gov.au/pages/home/]
 
