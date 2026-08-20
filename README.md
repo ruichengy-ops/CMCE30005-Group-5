@@ -11,8 +11,7 @@
 
 ## Business Problem
 
-[Write your one-paragraph problem statement here. Include: who is the stakeholder,
-what question you are answering, why it matters, and what methods you plan to use.]
+[How should business support or infrastructure-need assessment policies be planned given the trends in businesses, jobs, industries and business sizes across CLUE areas? ]
 
 ---
 
