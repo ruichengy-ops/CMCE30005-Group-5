@@ -13,18 +13,60 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r}
+library(dplyr)
 
-```{r cars}
-summary(cars)
+# A consistent colour set for every plot in this script
+blue   <- "#2a78d6"   # main colour for single-series plots
+orange <- "#eb6834"   # second, contrasting category
+grey   <- "#d8d8d4"   # background / "nothing to see here"
+red    <- "#e34948"   # errors and things to worry about
+
+dim(BEA)
+dim(BEW)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+nrow(BEA)
+nrow(BEW)
+```
+```{r}
+ncol(BEA)
+ncol(BEW)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+# It's always a good idea to check the head of the dataset
+head(BEA)
+head(BEW)
+```
+
+```{r}
+# Examine the structure of every variable
+glimpse(BEA)
+glimpse(BEW)
+```
+
+--- 1a. Which variables contain only NA values? -----------------------------
+```{r}
+all_missing1 <- sapply(BEA, function(x) all(is.na(x)))
+
+names(BEA)[all_missing1]
+
+all_missing2 <- sapply(BEA, function(x) all(is.na(x)))
+
+names(BEA)[all_missing2]
+```
+
+```{r}
+sum(all_missing1)
+sum(all_missing2)
+```
+
+ANSWER: No variables is completely empty
+
+--- A column that is empty but does not LOOK empty --------------------------
+```{r}
+table(BEA$host_verifications, useNA = "ifany")
+table(BEW$host_verifications, useNA = "ifany")
+```
