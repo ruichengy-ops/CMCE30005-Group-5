@@ -14,7 +14,18 @@ knitr::opts_chunk$set(echo = TRUE)
 This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
 ```{r}
-library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(skimr)
+library(naniar)
+library(ggcorrplot)
+library(scales)
+library(patchwork)
+library(here)
+
+df_small_raw <- read.csv(here("business-establishments-and-jobs-data-by-business-size-and-anzsic.csv")) # Aggregated by census year, CLUE area, ANSZIC Industry, Biz size
+df_large_raw <- read.csv(here("business-establishments-with-address-and-industry-classification.csv")) # Aggregated by address-level
 
 # A consistent colour set for every plot in this script
 blue   <- "#2a78d6"   # main colour for single-series plots
@@ -22,51 +33,268 @@ orange <- "#eb6834"   # second, contrasting category
 grey   <- "#d8d8d4"   # background / "nothing to see here"
 red    <- "#e34948"   # errors and things to worry about
 
-dim(BEA)
-dim(BEW)
+dim(df_small_raw)
+dim(df_large_raw)
 ```
 
 ```{r}
-nrow(BEA)
-nrow(BEW)
+nrow(df_small_raw)
+nrow(df_large_raw)
 ```
 ```{r}
-ncol(BEA)
-ncol(BEW)
+ncol(df_small_raw)
+ncol(df_large_raw)
 ```
 
 ```{r}
 # It's always a good idea to check the head of the dataset
-head(BEA)
-head(BEW)
+head(df_small_raw)
+head(df_large_raw)
 ```
 
 ```{r}
 # Examine the structure of every variable
-glimpse(BEA)
-glimpse(BEW)
+glimpse(df_small_raw) 
+glimpse(df_large_raw)
 ```
-
---- 1a. Which variables contain only NA values? -----------------------------
-```{r}
-all_missing1 <- sapply(BEA, function(x) all(is.na(x)))
-
-names(BEA)[all_missing1]
-
-all_missing2 <- sapply(BEA, function(x) all(is.na(x)))
-
-names(BEA)[all_missing2]
-```
-
-```{r}
-sum(all_missing1)
-sum(all_missing2)
-```
-
-ANSWER: No variables is completely empty
+No variables are completely empty
 
 --- A column that is empty but does not LOOK empty --------------------------
 ```{r}
-table(BEA$host_verifications, useNA = "ifany")
-table(BEW$host_verifications, useNA = "ifany")
+table(df_small_raw$host_verifications, useNA = "ifany")
+table(df_large_raw$host_verifications, useNA = "ifany")
 ```
+
+# *Data Cleaning*
+
+## Overview:
+### Our project draws on two source files: the aggregated business/jobs file and the address-level establishment file. Each maps onto a different half of our research question, so rather than cleaning each file as an end in itself, our cleaning process is organised around producing three analysis-ready tables for the team to build on. `TO DISCUSS`
+
+- **Table 1 — Industry & Employment Trends** (`df_small_clean`):
+  `census_year x clue_small_area x industry x business_size`, with `total_establishments` and `total_jobs`. 
+  This is our primary table for identifying which industry sectors and CLUE areas have experienced sustained growth or decline — the core of our research question.
+
+- **Table 2 — Address-level Data for Maps**: (`df_large_clean`)
+  The cleaned address-level file, with the ANZSIC code fix applied and location ID columns dropped, kept for anyone doing spatial visualisation with geolocations — like our heatmaps, mapping establishment density, vacancy clusters by coordinates, etc.
+
+- **Table 3 — Vacancy/Underutilisation Data** (`vacancy_by_area_year`):
+  `census_year x clue_small_area`, with `n_establishments`, `n_vacant`, and `vacancy_rate`. 
+  This is our measure of business-space underutilisation, and feeds directly into the infrastructure-need/policy-planning half of our research question.
+
+
+## 1. Table 1 — Industry & Employment Trends from df_small_raw
+
+TLDR:
+- No text inconsistencies found for area, industry, and business size. 
+
+- Checked for NAs across all columns. Only total_jobs had missing vals (4,252 obs). All other columns (Census.year, CLUE.small.area, ANZSIC.indusrty, Business.size, Total.establishments) were fully complete.
+
+- Explored Total jobs missing vals (Large business 59% missing, Medium 31%, Non employing 45%, Small business 14%). It doesn't seem like a data collection error, it could be data suppression to restrict business information. `TO DISCUSS`
+
+- Checked for total_establishments/total_jobs == 0. 1,451 rows of total_jobs == 0 come from Non employing business size, so no data cleaning required.
+
+```{r}
+# Check NAs
+colSums(is.na(df_small_raw))
+
+# Clean names + convert census year to date
+df_small_clean <- df_small_raw |>
+  janitor::clean_names() |>
+  mutate(census_year = as.Date(paste0(census_year, "-01-01")))
+
+df_small_clean |>
+  group_by(business_size) |>
+  summarise(pct_na_jobs = mean(is.na(total_jobs)))
+
+# how many rows have total_establishments == 0?
+df_small_clean |> 
+  filter(total_establishments == 0) |> 
+  nrow()
+
+# how many rows have total_jobs == 0, broken down by business_size?
+df_small_clean |> 
+  filter(total_jobs == 0) |> 
+  count(business_size)
+
+# Check text consistency on the categorical columns
+n_distinct(df_small_raw$CLUE.small.area)
+n_distinct(str_squish(str_to_lower(df_small_raw$CLUE.small.area)))
+
+n_distinct(df_small_raw$ANZSIC.indusrty)
+n_distinct(str_squish(str_to_lower(df_small_raw$ANZSIC.indusrty)))
+
+n_distinct(df_small_raw$Business.size)
+n_distinct(str_squish(str_to_lower(df_small_raw$Business.size)))
+
+glimpse(df_small_clean)
+
+# Compare number of observations (aggregated by Census year, CLUE area) in df_small vs. df_large.
+df_large_summary <- df_large_raw |>
+  count(census_year, clue_small_area, name = "n_from_df_large")
+
+df_small_summary <- df_small_raw |>
+  group_by(Census.year, CLUE.small.area) |>
+  summarise(n_from_df_small = sum(Total.establishments), .groups = "drop")
+
+compare <- df_large_summary |>
+  left_join(df_small_summary, by = c("census_year" = "Census.year", "clue_small_area" = "CLUE.small.area"))
+
+# Checking if df_small excludes Vacant Spaced observations
+df_large_summary_no_vacant <- df_large_raw |>
+  filter(industry_anzsic4_description != "Vacant Space") |>
+  count(census_year, clue_small_area, name = "n_from_df_large_novacant")
+
+```
+
+## 2. Table 2 — Geolocational Data (Making df_large_clean)
+
+### Steps:
+### 2.1: Checking for Duplicate rows & Removing Location ID variables (block, property, base_property id) from df_large_raw. Resolving datatype issues.
+### 2.2: Check & Clean Industry variables (industry_anzsic4_code and industry_anzsic4_description)
+### 2.3: Check & Clean Geolocational data (longitude, latitude, and point)
+
+
+## 2.1. Checking for Duplicate rows, Removing Location ID variables (block, property, base_property id) from df_large_raw, Changing census_year to datetime
+
+TLDR:
+- Duplicates: No completely duplicated rows
+- We don't need it for our base analysis, we can join it back in the future if we choose to explore a "businesses per building" density feature.
+
+```{r}
+# Count duplicate rows
+df_large_raw |> count(across(everything())) |> filter(n > 1)
+
+# remove location IDs
+df_large_clean <- df_large_raw |>
+  select(!c(block_id, property_id, base_property_id))
+
+# Convert census_year to a date type
+df_large_clean <- df_large_clean |>
+  mutate(census_year = as.Date(paste0(census_year, "-01-01")))
+```
+
+## 2.2: Check & Clean Industry variables (industry_anzsic4_code and industry_anzsic4_description)
+
+TLDR:
+- Checked for codes <-> descriptions mapping. Found no inconsistencies.
+- Checked for codes that weren't 4 digits long;
+  - We had 9x industry codes that were 3 digits long, they were missing a "0" in front of them. Rectified that issue
+- We have 68299x business addresses that are empty (industry_anzsic4_code = 0, industry_anzsic4_description = "Vacant Space"). I chose to leave them in because we can use them to measure underutilisation.
+
+```{r}
+# Check codes that map to more than one description. 0 found.
+df_large_clean |> distinct(industry_anzsic4_code, industry_anzsic4_description) |>
+  count(industry_anzsic4_code) |> filter(n > 1)
+
+# Check descriptions that map to more than one code. 0 found.
+df_large_clean |> distinct(industry_anzsic4_code, industry_anzsic4_description) |>
+  count(industry_anzsic4_description) |> filter(n > 1)
+
+# Check for ANZSIC codes that aren't 4 characters long. 
+# We have 68299 observations Vacant Space = 0, 
+# 945 observations in 9x other 3-character industry codes.
+# I checked the ANZSIC website for each of those 9 industries, I found that they are missing a "0" in front of their 3 characters. 
+df_large_clean |> mutate(code_len = nchar(trimws(industry_anzsic4_code))) |> count(code_len)
+df_large_clean |> filter(!grepl("^[0-9]{4}$", trimws(industry_anzsic4_code))) |> distinct(industry_anzsic4_code, industry_anzsic4_description)
+
+# Adding a "0" to those 9x 3-character codes
+df_large_clean <- df_large_clean |>
+  mutate(industry_anzsic4_code = if_else(
+    nchar(trimws(industry_anzsic4_code)) == 3,
+    str_pad(trimws(industry_anzsic4_code), 4, side = "left", pad = "0"),
+    trimws(industry_anzsic4_code)
+  ))
+
+# Check for differences in string/text formats. Same = no differences
+n_distinct(df_large_clean$industry_anzsic4_description)
+n_distinct(str_squish(str_to_lower(df_large_clean$industry_anzsic4_description)))
+```
+
+## 2.3: Check & Clean Geolocational data (longitude, latitude, and point)
+
+TLDR:
+- 4,785 observations (~1.2%) are missing latitude/longitude. Of these, only 1,094 (23%) are Vacant Space. The majority, 3,691 (77%), are active businesses missing coordinates, so this isn't fully explained by vacancy.
+
+- Missingness is not evenly spread over time: it's heavily concentrated in 2016 (1,742 of 4,785, ~36%), tapering off through the mid-2010s. 2020–2024 have zero missing coordinates, so this looks like a resolved data-collection issue specific to 2016 and earlier, rather than an ongoing gap.
+
+- Decision: Kept those rows as-is since our unit of analysis is clue_small_area, not exact coordinates. Note however that it's a known limitation for visualisation — a small subset of points, concentrated in 2016, won't plot on a map.
+
+- Point always matched latitude/longitude when present, and was always correctly formatted. Hence its redundant, and I dropped it from df_large_clean
+  
+```{r}
+# Checking for NA Geolocation values. We have 4785. The
+df_large_clean |>
+  summarise(
+    na_longitude = sum(is.na(longitude)),
+    na_latitude  = sum(is.na(latitude)),
+    empty_point  = sum(!is.na(point) & trimws(point) == "")
+  )
+
+# Checking the other 408,765 observations' text hygiene, that its always "latitude, longitude" in string format. All in the right format
+df_large_clean |>
+  filter(!is.na(point), trimws(point) != "") |>
+  mutate(valid_format = grepl("^-?[0-9]+\\.[0-9]+,\\s*-?[0-9]+\\.[0-9]+$", trimws(point))) |>
+  count(valid_format)
+
+df_large_clean |>
+  filter(!is.na(point), trimws(point) != "") |>
+  separate(point, into = c("point_lat", "point_long"), sep = ",\\s*", convert = TRUE) |>
+  mutate(lat_match  = abs(point_lat  - latitude)  < 1e-6,
+         long_match = abs(point_long - longitude) < 1e-6) |>
+  count(lat_match, long_match)
+
+# Since "point" always matches to "latitude, longitude", we remove it as a variable
+df_large_clean <- df_large_clean |> select(-point)
+
+# Checking for duplicate rows after we've removed block_id, property_id, and base_property_id. There are quite alot. 
+df_large_clean |> count(across(everything())) |> filter(n > 1)
+
+# Check to see how many observations with no Geolocational data link to Vacant spaces
+df_large_raw |>
+  filter(is.na(latitude) | is.na(longitude)) |>
+  count(industry_anzsic4_description == "Vacant Space")
+
+# Checking for missing Geolocation Data across years 
+df_large_raw |>
+  filter(is.na(latitude) | is.na(longitude)) |>
+  count(census_year) |>
+  arrange(desc(n))
+```
+
+## 3. Table 3 — Vacancy/Underutilisation Data from df_large_clean
+
+- Checked for rows where trading_name suggests vacancy but industry classification isn't "Vacant Space" (23 distinct code/description combos, maybe ~50 observations)
+
+- These aren't a uniform mislabeling issue: some appear to be temporarily-closed named businesses (e.g. "Ding Dong Lounge (Currently vacant due to fire damage)"). 
+
+- Merged into the vacancy measure regardless, since vacancy_rate is measuring active business use of space within a given census year.
+
+```{r}
+# Cross-checking vacancy classification via trading_name
+df_large_clean |>
+  filter(str_detect(str_to_lower(trading_name), "vacant"),
+         industry_anzsic4_description != "Vacant Space") |>
+  count(trading_name, industry_anzsic4_code, industry_anzsic4_description, sort = TRUE)
+
+# Building vacancy_by_area_year
+df_large_clean <- df_large_clean |>
+  mutate(is_vacant = industry_anzsic4_description == "Vacant Space" |
+                      str_detect(str_to_lower(trading_name), "vacant"))
+
+vacancy_by_area_year <- df_large_clean |>
+  group_by(census_year, clue_small_area) |>
+  summarise(
+    n_establishments = n(),
+    n_vacant = sum(is_vacant),
+    vacancy_rate = n_vacant / n_establishments,
+    .groups = "drop"
+  )
+```
+
+
+
+
+
+
+
+
