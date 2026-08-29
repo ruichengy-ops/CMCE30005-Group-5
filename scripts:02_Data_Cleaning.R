@@ -34,33 +34,33 @@ library(patchwork)
 # Session info (for reproducibility) s  
 sessionInfo()
 
-df_small <- read.csv("business-establishments-and-jobs-data-by-business-size-and-anzsic.csv") # Aggregated by census year, CLUE area, ANSZIC Industry, Biz size
-df_large <- read.csv("business-establishments-with-address-and-industry-classification.csv") # Aggregated by address-level
+df_small_raw <- read.csv("business-establishments-and-jobs-data-by-business-size-and-anzsic.csv") # Aggregated by census year, CLUE area, ANSZIC Industry, Biz size
+df_large_raw <- read.csv("business-establishments-with-address-and-industry-classification.csv") # Aggregated by address-level
 
 
 #### 1. EXPLORE df_large
-dim(df_large)
-glimpse(df_large)
+dim(df_large_raw)
+glimpse(df_large_raw)
 
 # Count missing values in each col
-colSums(is.na(df_large))
+colSums(is.na(df_large_raw))
 
 # Count distinct CLUE areas and ANZSIC industries
-sapply(df_large[c("clue_small_area","industry_anzsic4_description")], n_distinct)
+sapply(df_large_raw[c("clue_small_area","industry_anzsic4_description")], n_distinct)
 
 # Check range of census data
-range(df_large$census_year)
+range(df_large_raw$census_year)
 
 # Check for duplicate rows
-sum(duplicated(df_large))
+sum(duplicated(df_large_raw))
 
 
 #### 1. Compare number of observations (aggregated by Census year, CLUE area) in df_small vs. df_large.
 
-df_large_summary <- df_large |>
+df_large_summary <- df_large_raw |>
   count(census_year, clue_small_area, name = "n_from_df_large")
 
-df_small_summary <- df_small |>
+df_small_summary <- df_small_raw |>
   group_by(Census.year, CLUE.small.area) |>
   summarise(n_from_df_small = sum(Total.establishments), .groups = "drop")
 
