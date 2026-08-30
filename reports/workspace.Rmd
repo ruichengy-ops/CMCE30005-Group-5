@@ -290,3 +290,7 @@ vacancy_by_area_year <- df_large_clean |>
     .groups = "drop"
   )
 ```
+
+```{r}
+
+```
