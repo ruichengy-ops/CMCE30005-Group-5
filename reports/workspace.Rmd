@@ -292,5 +292,57 @@ vacancy_by_area_year <- df_large_clean |>
 ```
 
 ```{r}
+max(vacancy_by_area_year$n_establishments)
+```
 
+```{r}
+vacancy_by_area_year_2020 <- vacancy_by_area_year |>
+  filter(census_year == "2020-01-01") |>
+  mutate(occupied = n_establishments - n_vacant) |>
+  select(clue_small_area, occupied, n_vacant) |>
+  pivot_longer(cols = c(occupied, n_vacant),
+               names_to = "status",
+               values_to = "count") |>
+  mutate(status = recode(status, occupied = "Occupied", n_vacant = "Vacant"))
+
+ggplot(
+  vacancy_by_area_year_2020, 
+  aes(x = clue_small_area,
+      y = count,
+      fill = status),
+  ) + 
+  geom_col(position = "stack") +
+  coord_flip() + 
+  scale_fill_manual(values = c("Occupied" = "blue", "Vacant" = "lightblue")) +
+  labs(title = "Melbourne Establishments and Vacancies in 2020",
+       x = NULL,
+       y = "Number of Establishments",
+       fill = NULL) +
+  theme_minimal()
+```
+
+```{r}
+vacancy_by_area_year_trend <- vacancy_by_area_year |>
+  select(census_year, clue_small_area, vacancy_rate) |>
+  group_by(clue_small_area)
+
+library(ggokabeito)
+
+# Use faceting instead of one crowded chart
+ggplot(
+  vacancy_by_area_year_trend,
+  aes(x = census_year,
+      y = vacancy_rate)
+) +
+geom_line(size = 1, color = "steelblue") +
+facet_wrap(~ clue_small_area, scales = "free_y") +  # One facet per area
+labs(title = "Melbourne Establishment Vacancy Rates across CLUE areas (2002-2024)",
+     x = "Year",
+     y = "Vacancy Rate (%)") +
+theme_minimal() +
+theme(
+  strip.text = element_text(size = 8, face = "bold"),
+  plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
+) +
+scale_y_continuous(labels = scales::percent_format(scale = 1))
 ```
