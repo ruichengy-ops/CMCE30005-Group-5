@@ -23,6 +23,7 @@ library(ggcorrplot)
 library(scales)
 library(patchwork)
 library(here)
+library(tidyr)
 
 df_small_raw <- read.csv(here("business-establishments-and-jobs-data-by-business-size-and-anzsic.csv")) # Aggregated by census year, CLUE area, ANSZIC Industry, Biz size
 df_large_raw <- read.csv(here("business-establishments-with-address-and-industry-classification.csv")) # Aggregated by address-level
@@ -292,5 +293,125 @@ vacancy_by_area_year <- df_large_clean |>
 ```
 
 ```{r}
+max(vacancy_by_area_year$n_establishments)
+```
 
+```{r}
+vacancy_by_area_year_2020 <- vacancy_by_area_year |>
+  filter(census_year == "2020-01-01") |>
+  mutate(occupied = n_establishments - n_vacant) |>
+  select(clue_small_area, occupied, n_vacant) |>
+  pivot_longer(cols = c(occupied, n_vacant),
+               names_to = "status",
+               values_to = "count") |>
+  mutate(status = recode(status, occupied = "Occupied", n_vacant = "Vacant"))
+
+ggplot(
+  vacancy_by_area_year_2020, 
+  aes(x = clue_small_area,
+      y = count,
+      fill = status),
+  ) + 
+  geom_col(position = "stack") +
+  coord_flip() + 
+  scale_fill_manual(values = c("Occupied" = "blue", "Vacant" = "lightblue")) +
+  labs(title = "Melbourne Establishments and Vacancies in 2020",
+       x = NULL,
+       y = "Number of Establishments",
+       fill = NULL) +
+  theme_minimal()
+```
+
+```{r}
+vacancy_by_area_year_trend <- vacancy_by_area_year |>
+  select(census_year, clue_small_area, vacancy_rate) |>
+  group_by(clue_small_area)
+
+
+# Use faceting instead of one crowded chart
+ggplot(
+  vacancy_by_area_year_trend,
+  aes(x = census_year,
+      y = vacancy_rate)
+) +
+geom_line(size = 1, color = "steelblue") +
+facet_wrap(~ clue_small_area, scales = "free_y") +  # One facet per area
+labs(title = "Melbourne Establishment Vacancy Rates across CLUE areas (2002-2024)",
+     x = "Year",
+     y = "Vacancy Rate (%)") +
+theme_minimal() +
+theme(
+  strip.text = element_text(size = 8, face = "bold"),
+  plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
+) +
+scale_y_continuous(labels = scales::percent_format(scale = 1))
+```
+
+```{r}
+vacancy_heatmap <- vacancy_by_area_year_trend %>%
+  mutate(year = census_year)
+  
+ggplot(
+  vacancy_heatmap, 
+  aes(x = clue_small_area,
+      y = year,
+      fill = vacancy_rate
+      ) 
+) + 
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  coord_flip() + 
+  labs(title = "Melbourne Establishments and Vacancies Over Time (2002-2024)",
+       x = NULL,
+       y = NULL,
+       fill = "Vacancy Rate") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+  )
+```
+
+```{r}
+vacancy_heatmap_2 <- vacancy_by_area_year %>%
+  mutate(year = census_year)
+
+ggplot(
+  vacancy_heatmap_2, 
+  aes(x = clue_small_area,
+      y = year,
+      fill = n_establishments
+      ) 
+) + 
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  coord_flip() + 
+  labs(title = "Numbers of Establishments in Melbourne Over Time (2002-2024)",
+       x = NULL,
+       y = NULL,
+       fill = "Numbers of Establishments") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+  )
+```
+
+```{r}
+ggplot(
+  vacancy_heatmap_2, 
+  aes(x = clue_small_area,
+      y = year,
+      fill = n_vacant
+      ) 
+) + 
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  coord_flip() + 
+  labs(title = "Numbers of Vacancies in Melbourne Over Time (2002-2024)",
+       x = NULL,
+       y = NULL,
+       fill = "Number of Vacant") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+  )
 ```
