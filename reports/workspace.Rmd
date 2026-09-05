@@ -413,5 +413,8 @@ ggplot(
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
   )
+<<<<<<< HEAD
 
+=======
+>>>>>>> 0d8eb75d3dfc015037d9391de70727c5c200dbff
 ```
