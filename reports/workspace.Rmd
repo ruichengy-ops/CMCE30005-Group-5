@@ -327,7 +327,6 @@ vacancy_by_area_year_trend <- vacancy_by_area_year |>
   select(census_year, clue_small_area, vacancy_rate) |>
   group_by(clue_small_area)
 
-
 # Use faceting instead of one crowded chart
 ggplot(
   vacancy_by_area_year_trend,
