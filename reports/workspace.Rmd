@@ -414,3 +414,42 @@ ggplot(
     axis.text.x = element_text(angle = 45, hjust = 1),
   )
 ```
+
+```{r}
+library(remotes)
+sf::sf_extSoftVersion()
+install.packages("osmdata")
+```
+
+```{r}
+library(curl)
+curl::curl_version()
+```
+```{r}
+library(tmap)
+library(osmdata)
+library(sf)
+
+# 将下面的路径替换为你下载的 GeoJSON 文件的实际路径
+clue_boundary <- st_read("small-areas-for-census-of-land-use-and-employment-clue.geojson")
+
+clue_boundary <- clue_boundary %>%
+  rename(clue_small_area = featurenam)
+
+library(dplyr)
+
+vacancy_sf <- clue_boundary %>%
+  left_join(vacancy_heatmap_2, by = "clue_small_area")
+
+install.packages("gifski")
+library(gifski)
+
+# 定义动画：用 tm_animate() 来指定帧变量和速度
+NE_anim = tm_shape(melbourne_boundary) + 
+  tm_polygons() + 
+  tm_shape(vacancy_sf) + 
+  tm_polygons(fill = "n_establishments") + 
+  tm_animate(by = "year", fps = 2)  # 用 tm_animate，并指定帧率和分组变量
+
+tmap_animation(NE_anim, filename = "melbourne_animation.gif", delay = 50)
+```
