@@ -430,7 +430,6 @@ library(tmap)
 library(osmdata)
 library(sf)
 
-# 将下面的路径替换为你下载的 GeoJSON 文件的实际路径
 clue_boundary <- st_read("small-areas-for-census-of-land-use-and-employment-clue.geojson")
 
 clue_boundary <- clue_boundary %>%
@@ -444,12 +443,29 @@ vacancy_sf <- clue_boundary %>%
 install.packages("gifski")
 library(gifski)
 
-# 定义动画：用 tm_animate() 来指定帧变量和速度
 NE_anim = tm_shape(melbourne_boundary) + 
   tm_polygons() + 
   tm_shape(vacancy_sf) + 
   tm_polygons(fill = "n_establishments") + 
-  tm_animate(by = "year", fps = 2)  # 用 tm_animate，并指定帧率和分组变量
+  tm_animate(by = "year", fps = 2)  
 
-tmap_animation(NE_anim, filename = "melbourne_animation.gif", delay = 50)
+tmap_animation(NE_anim, filename = "melbourne_animation_establishments.gif")
+```
+```{r}
+NE_anim = tm_shape(melbourne_boundary) + 
+  tm_polygons() + 
+  tm_shape(vacancy_sf) + 
+  tm_polygons(fill = "n_vacant") + 
+  tm_animate(by = "year", fps = 2)  
+
+tmap_animation(NE_anim, filename = "melbourne_animation_vacant.gif")
+```
+```{r}
+NE_anim = tm_shape(melbourne_boundary) + 
+  tm_polygons() + 
+  tm_shape(vacancy_sf) + 
+  tm_polygons(fill = "vacancy_rate") + 
+  tm_animate(by = "year", fps = 2)  
+
+tmap_animation(NE_anim, filename = "melbourne_animation_vacancy_rate.gif")
 ```
