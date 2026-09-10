@@ -20,6 +20,7 @@ library(janitor)
 library(skimr)
 library(naniar)
 library(ggcorrplot)
+library(ggplot2)
 library(scales)
 library(patchwork)
 library(here)
@@ -341,7 +342,8 @@ labs(title = "Melbourne Establishment Vacancy Rates across CLUE areas (2002-2024
 theme_minimal() +
 theme(
   strip.text = element_text(size = 8, face = "bold"),
-  plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
+  plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+  axis.text.x = element_text(angle = 45, hjust = 1)
 ) +
 scale_y_continuous(labels = scales::percent_format(scale = 1))
 ```
