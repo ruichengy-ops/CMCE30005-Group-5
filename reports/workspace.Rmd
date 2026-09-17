@@ -18,7 +18,7 @@ library(tidyverse)
 library(lubridate)
 library(janitor)
 library(skimr)
-library(naniar)
+library(naniar) 
 library(ggcorrplot)
 library(ggplot2)
 library(scales)
@@ -96,7 +96,7 @@ TLDR:
 - Checked for total_establishments/total_jobs == 0. 1,451 rows of total_jobs == 0 come from Non employing business size, so no data cleaning required.
 
 ```{r}
-# Check NAs
+# Check NAs. Total jobs has 4252.
 colSums(is.na(df_small_raw))
 
 # Clean names + convert census year to date
@@ -104,19 +104,36 @@ df_small_clean <- df_small_raw |>
   janitor::clean_names() |>
   mutate(census_year = as.Date(paste0(census_year, "-01-01")))
 
+# Check percentage of each Business Size where total jobs is NA
 df_small_clean |>
   group_by(business_size) |>
   summarise(pct_na_jobs = mean(is.na(total_jobs)))
-
-# how many rows have total_establishments == 0?
-df_small_clean |> 
-  filter(total_establishments == 0) |> 
-  nrow()
 
 # how many rows have total_jobs == 0, broken down by business_size?
 df_small_clean |> 
   filter(total_jobs == 0) |> 
   count(business_size)
+
+# since all rows with total jobs = 0 are non employing, check if there are any non employing businesses with total jobs not NA or 0
+df_small_clean |>
+  filter(business_size == "Non employing", !is.na(total_jobs), total_jobs != 0) |>
+  count(total_jobs, sort = TRUE)
+
+# Since all non employing businesses have either NA or 0 total jobs, impute all their NAs as 0
+df_small_clean <- df_small_clean |>
+  mutate(total_jobs = if_else(business_size == "Non employing" & is.na(total_jobs),
+                               0, total_jobs))
+
+# For the rest (small, med, lar), the NA rows could be due to business confidentiality
+# Hence keep those rows, but add a bool variable "jobs_suppressed" to flag if that entity has job data hidden.
+df_small_clean <- df_small_clean |>
+  mutate(jobs_suppressed = is.na(total_jobs))
+
+
+# how many rows have total_establishments == 0?
+df_small_clean |> 
+  filter(total_establishments == 0) |> 
+  nrow()
 
 # Check text consistency on the categorical columns
 n_distinct(df_small_raw$CLUE.small.area)
