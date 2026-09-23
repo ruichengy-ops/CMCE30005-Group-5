@@ -151,17 +151,50 @@ glimpse(df_small_clean)
 df_large_summary <- df_large_raw |>
   count(census_year, clue_small_area, name = "n_from_df_large")
 
+df_large_summary_no_vacant <- df_large_raw |>
+  filter(industry_anzsic4_description != "Vacant Space") |>
+  count(census_year, clue_small_area, name = "n_from_df_large_novacant")
+
 df_small_summary <- df_small_raw |>
   group_by(Census.year, CLUE.small.area) |>
   summarise(n_from_df_small = sum(Total.establishments), .groups = "drop")
 
 compare <- df_large_summary |>
-  left_join(df_small_summary, by = c("census_year" = "Census.year", "clue_small_area" = "CLUE.small.area"))
+  left_join(df_large_summary_no_vacant, by = c("census_year", "clue_small_area")) |>
+  left_join(df_small_summary, by = c("census_year" = "Census.year", "clue_small_area" = "CLUE.small.area")) |>
+  mutate(
+    difference = n_from_df_large - n_from_df_small,
+    difference_novacant = n_from_df_large_novacant - n_from_df_small
+  )
 
-# Checking if df_small excludes Vacant Spaced observations
-df_large_summary_no_vacant <- df_large_raw |>
-  filter(industry_anzsic4_description != "Vacant Space") |>
-  count(census_year, clue_small_area, name = "n_from_df_large_novacant")
+#
+compare |> count(difference_novacant == 0)
+compare |> summarise(
+  pct_exact_match = mean(difference_novacant == 0, na.rm = TRUE),
+  mean_abs_diff = mean(abs(difference_novacant), na.rm = TRUE)
+)
+
+#
+compare |>
+  filter(difference_novacant != 0) |>
+  arrange(desc(abs(difference_novacant))) |>
+  select(census_year, clue_small_area, difference_novacant)
+
+#
+large_carlton_2008 <- df_large_raw |>
+  filter(census_year == 2008, clue_small_area == "Carlton",
+         industry_anzsic4_description != "Vacant Space") |>
+  count(industry_anzsic4_description, name = "n_large")
+
+small_carlton_2008 <- df_small_raw |>
+  filter(Census.year == 2008, CLUE.small.area == "Carlton") |>
+  group_by(ANZSIC.indusrty) |>
+  summarise(n_small = sum(Total.establishments), .groups = "drop")
+
+large_carlton_2008 |>
+  full_join(small_carlton_2008, by = c("industry_anzsic4_description" = "ANZSIC.indusrty")) |>
+  mutate(gap = n_large - n_small) |>
+  arrange(gap)
 
 ```
 
