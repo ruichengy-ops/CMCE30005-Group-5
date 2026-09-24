@@ -20,11 +20,11 @@ library(janitor)
 library(skimr)
 library(naniar)
 library(ggcorrplot)
-library(ggplot2)
 library(scales)
 library(patchwork)
 library(here)
-library(tidyr)
+library(ggh4x)
+library(purrr)
 
 df_small_raw <- read.csv(here("business-establishments-and-jobs-data-by-business-size-and-anzsic.csv")) # Aggregated by census year, CLUE area, ANSZIC Industry, Biz size
 df_large_raw <- read.csv(here("business-establishments-with-address-and-industry-classification.csv")) # Aggregated by address-level
@@ -37,17 +37,11 @@ red    <- "#e34948"   # errors and things to worry about
 
 dim(df_small_raw)
 dim(df_large_raw)
-```
-
-```{r}
 nrow(df_small_raw)
 nrow(df_large_raw)
-```
-```{r}
 ncol(df_small_raw)
 ncol(df_large_raw)
 ```
-
 ```{r}
 # It's always a good idea to check the head of the dataset
 head(df_small_raw)
@@ -58,13 +52,6 @@ head(df_large_raw)
 # Examine the structure of every variable
 glimpse(df_small_raw) 
 glimpse(df_large_raw)
-```
-No variables are completely empty
-
---- A column that is empty but does not LOOK empty --------------------------
-```{r}
-table(df_small_raw$host_verifications, useNA = "ifany")
-table(df_large_raw$host_verifications, useNA = "ifany")
 ```
 
 # *Data Cleaning*
@@ -114,39 +101,6 @@ df_small_clean |>
   filter(total_jobs == 0) |> 
   count(business_size)
 
-# since all rows with total jobs = 0 are non employing, check if there are any non employing businesses with total jobs not NA or 0
-df_small_clean |>
-  filter(business_size == "Non employing", !is.na(total_jobs), total_jobs != 0) |>
-  count(total_jobs, sort = TRUE)
-
-# Since all non employing businesses have either NA or 0 total jobs, impute all their NAs as 0
-df_small_clean <- df_small_clean |>
-  mutate(total_jobs = if_else(business_size == "Non employing" & is.na(total_jobs),
-                               0, total_jobs))
-
-# For the rest (small, med, lar), the NA rows could be due to business confidentiality
-# Hence keep those rows, but add a bool variable "jobs_suppressed" to flag if that entity has job data hidden.
-df_small_clean <- df_small_clean |>
-  mutate(jobs_suppressed = is.na(total_jobs))
-
-
-# how many rows have total_establishments == 0?
-df_small_clean |> 
-  filter(total_establishments == 0) |> 
-  nrow()
-
-# Check text consistency on the categorical columns
-n_distinct(df_small_raw$CLUE.small.area)
-n_distinct(str_squish(str_to_lower(df_small_raw$CLUE.small.area)))
-
-n_distinct(df_small_raw$ANZSIC.indusrty)
-n_distinct(str_squish(str_to_lower(df_small_raw$ANZSIC.indusrty)))
-
-n_distinct(df_small_raw$Business.size)
-n_distinct(str_squish(str_to_lower(df_small_raw$Business.size)))
-
-glimpse(df_small_clean)
-
 # Compare number of observations (aggregated by Census year, CLUE area) in df_small vs. df_large.
 df_large_summary <- df_large_raw |>
   count(census_year, clue_small_area, name = "n_from_df_large")
@@ -167,35 +121,162 @@ compare <- df_large_summary |>
     difference_novacant = n_from_df_large_novacant - n_from_df_small
   )
 
-#
+# Which areas (if any) show a mismatch once vacant space is excluded, and how big is it overall?
 compare |> count(difference_novacant == 0)
 compare |> summarise(
   pct_exact_match = mean(difference_novacant == 0, na.rm = TRUE),
   mean_abs_diff = mean(abs(difference_novacant), na.rm = TRUE)
 )
 
-#
+# Full detail: every mismatching area-year, sorted by size of the gap
 compare |>
   filter(difference_novacant != 0) |>
   arrange(desc(abs(difference_novacant))) |>
   select(census_year, clue_small_area, difference_novacant)
 
-#
-large_carlton_2008 <- df_large_raw |>
-  filter(census_year == 2008, clue_small_area == "Carlton",
-         industry_anzsic4_description != "Vacant Space") |>
-  count(industry_anzsic4_description, name = "n_large")
+# Difference in aggregated observations between df_small and df_large is largely accounted for by vacancies.
+# Hence rename df_small variable to total_active_establishments.
+# Minor residual discrepancies (<20 establishments per area-year, 7 of 13 areas, pre-2009 only) remain
+# unexplained but are negligible in scale and don't bias the analysis.
+# Renamed here (moved earlier) since total_active_establishments is needed by the suppression check below.
+df_small_clean <- df_small_clean |>
+  rename(total_active_establishments = total_establishments)
 
-small_carlton_2008 <- df_small_raw |>
-  filter(Census.year == 2008, CLUE.small.area == "Carlton") |>
-  group_by(ANZSIC.indusrty) |>
-  summarise(n_small = sum(Total.establishments), .groups = "drop")
+# Since all rows with total_jobs = 0 are Non employing, check if any Non employing 
+# businesses have total_jobs that's neither NA nor 0 (i.e. confirm 0 is the only real value that segment takes)
+df_small_clean |>
+  filter(business_size == "Non employing", !is.na(total_jobs), total_jobs != 0) |>
+  count(total_jobs, sort = TRUE)
 
-large_carlton_2008 |>
-  full_join(small_carlton_2008, by = c("industry_anzsic4_description" = "ANZSIC.indusrty")) |>
-  mutate(gap = n_large - n_small) |>
-  arrange(gap)
+# Confirmed: Non employing businesses only ever have NA or 0 jobs, so their NAs are a 
+# genuine zero, not missingness. Impute now — must happen before the jobs_suppressed 
+# flag below, otherwise these legitimate zeros get miscounted as suppressed.
+df_small_clean <- df_small_clean |>
+  mutate(total_jobs = if_else(business_size == "Non employing" & is.na(total_jobs),
+                               0, total_jobs))
 
+# For the remaining business sizes (small, medium, large), any leftover NA in total_jobs 
+# is a real gap, not a resolvable zero. Keep those rows, but flag them so we know which 
+# entities have job data hidden.
+df_small_clean <- df_small_clean |>
+  mutate(jobs_suppressed = is.na(total_jobs))
+
+# Vic Data website suggests jobs data may be suppressed for cells with ≤2 establishments,
+# to protect individual business confidentiality. Test that hypothesis directly.
+# (Non employing excluded — their zeros are real, never suppressed, and would dilute the test.)
+suppression_check <- df_small_clean |>
+  filter(business_size != "Non employing") |>
+  mutate(estab_bucket = case_when(
+    total_active_establishments == 1 ~ "1",
+    total_active_establishments == 2 ~ "2",
+    total_active_establishments >= 3 ~ "3+"
+  )) |>
+  count(estab_bucket, jobs_suppressed) |>
+  tidyr::pivot_wider(names_from = jobs_suppressed, values_from = n, values_fill = 0) |>
+  rename(jobs_present = `FALSE`, jobs_suppressed_n = `TRUE`) |>
+  mutate(pct_suppressed = jobs_suppressed_n / (jobs_present + jobs_suppressed_n) * 100)
+
+suppression_check
+
+# Formal assertion: confirm the rule is exact (100% suppressed at n<=2, 0% at n>=3). 
+# Hypothesis confirmed (excluding Non employing businesses).
+stopifnot(
+  all(df_small_clean |> 
+        filter(business_size != "Non employing", total_active_establishments <= 2) |> 
+        pull(jobs_suppressed)),
+  !any(df_small_clean |> 
+        filter(business_size != "Non employing", total_active_establishments >= 3) |> 
+        pull(jobs_suppressed))
+)
+
+# how many rows have total_active_establishments == 0?
+df_small_clean |> 
+  filter(total_active_establishments == 0) |> 
+  nrow()
+
+# Check text consistency on the categorical columns
+n_distinct(df_small_raw$CLUE.small.area)
+n_distinct(str_squish(str_to_lower(df_small_raw$CLUE.small.area)))
+
+n_distinct(df_small_raw$ANZSIC.indusrty)
+n_distinct(str_squish(str_to_lower(df_small_raw$ANZSIC.indusrty)))
+
+n_distinct(df_small_raw$Business.size)
+n_distinct(str_squish(str_to_lower(df_small_raw$Business.size)))
+
+glimpse(df_small_clean)
+```
+
+Create yoy change and growth rate variables for total estabs and jobs
+
+```{r}
+# YoY by area (summed across business size and industry)
+yoy_by_area <- df_small_clean |>
+  group_by(census_year, clue_small_area) |>
+  summarise(
+    total_active_establishments = sum(total_active_establishments, na.rm = TRUE),
+    total_jobs = sum(total_jobs, na.rm = TRUE),
+    n_suppressed_cells = sum(jobs_suppressed),
+    .groups = "drop"
+  ) |>
+  arrange(clue_small_area, census_year) |>
+  group_by(clue_small_area) |>
+  mutate(
+    estab_yoy_pct = (total_active_establishments / lag(total_active_establishments) - 1) * 100,
+    jobs_yoy_pct  = (total_jobs / lag(total_jobs) - 1) * 100,
+    is_repeat_of_prior_year = total_active_establishments == lag(total_active_establishments) &
+                              total_jobs == lag(total_jobs)
+  ) |>
+  ungroup()
+
+# Does every area show flat-year repeats, and on what pattern (used to test/rule out the
+# biennial-census hypothesis — see write-up: no synchronized cycle found across areas)
+yoy_by_area |>
+  count(clue_small_area, is_repeat_of_prior_year) |>
+  tidyr::pivot_wider(names_from = is_repeat_of_prior_year, values_from = n, values_fill = 0)
+
+# Spot-check one area's actual year-by-year repeat pattern
+yoy_by_area |>
+  filter(clue_small_area == "East Melbourne") |>
+  select(census_year, is_repeat_of_prior_year)
+
+# YoY by industry (summed across area and business size)
+yoy_by_industry <- df_small_clean |>
+  group_by(census_year, anzsic_indusrty) |>
+  summarise(
+    total_active_establishments = sum(total_active_establishments, na.rm = TRUE),
+    total_jobs = sum(total_jobs, na.rm = TRUE),
+    n_suppressed_cells = sum(jobs_suppressed),
+    .groups = "drop"
+  ) |>
+  arrange(anzsic_indusrty, census_year) |>
+  group_by(anzsic_indusrty) |>
+  mutate(
+    estab_yoy_pct = (total_active_establishments / lag(total_active_establishments) - 1) * 100,
+    jobs_yoy_pct  = (total_jobs / lag(total_jobs) - 1) * 100,
+    is_repeat_of_prior_year = total_active_establishments == lag(total_active_establishments) &
+                              total_jobs == lag(total_jobs)
+  ) |>
+  ungroup()
+
+# YoY by business size (summed across area and industry)
+yoy_by_size <- df_small_clean |>
+  group_by(census_year, business_size) |>
+  summarise(
+    total_active_establishments = sum(total_active_establishments, na.rm = TRUE),
+    total_jobs = sum(total_jobs, na.rm = TRUE),
+    n_suppressed_cells = sum(jobs_suppressed),
+    .groups = "drop"
+  ) |>
+  arrange(business_size, census_year) |>
+  group_by(business_size) |>
+  mutate(
+    estab_yoy_pct = (total_active_establishments / lag(total_active_establishments) - 1) * 100,
+    jobs_yoy_pct  = (total_jobs / lag(total_jobs) - 1) * 100,
+    is_repeat_of_prior_year = total_active_establishments == lag(total_active_establishments) &
+                              total_jobs == lag(total_jobs)
+  ) |>
+  ungroup()
 ```
 
 ## 2. Table 2 — Geolocational Data (Making df_large_clean)
@@ -245,7 +326,7 @@ df_large_clean |> distinct(industry_anzsic4_code, industry_anzsic4_description) 
 # Check for ANZSIC codes that aren't 4 characters long. 
 # We have 68299 observations Vacant Space = 0, 
 # 945 observations in 9x other 3-character industry codes.
-# I checked the ANZSIC website for each of those 9 industries, I found that they are missing a "0" in front of their 3 characters. 
+# I cross-checked the ANZSIC website for each of those 9 industries, I found that they are missing a "0" in front of their 3 characters. 
 df_large_clean |> mutate(code_len = nchar(trimws(industry_anzsic4_code))) |> count(code_len)
 df_large_clean |> filter(!grepl("^[0-9]{4}$", trimws(industry_anzsic4_code))) |> distinct(industry_anzsic4_code, industry_anzsic4_description)
 
@@ -298,19 +379,75 @@ df_large_clean |>
 # Since "point" always matches to "latitude, longitude", we remove it as a variable
 df_large_clean <- df_large_clean |> select(-point)
 
-# Checking for duplicate rows after we've removed block_id, property_id, and base_property_id. There are quite alot. 
+# Checking for duplicate rows after we've removed block_id, property_id, and base_property_id. There are 114.
+# Since there were no duplicates before removing, we know they're still physically distinct. Hence leave these 114 duplicates
 df_large_clean |> count(across(everything())) |> filter(n > 1)
 
 # Check to see how many observations with no Geolocational data link to Vacant spaces
 df_large_raw |>
   filter(is.na(latitude) | is.na(longitude)) |>
-  count(industry_anzsic4_description == "Vacant Space")
+  count(industry_anzsic4_description == "Vacant Space" | str_detect(str_to_lower(trading_name), "vacant"))
 
-# Checking for missing Geolocation Data across years 
+# Checking for potential pattern among non-vacant observations that are missing Geolocation Data.
+# 1. are they concentrated across years? There seems to be some concentration in 2016
 df_large_raw |>
   filter(is.na(latitude) | is.na(longitude)) |>
   count(census_year) |>
-  arrange(desc(n))
+  arrange(desc(n)) |>
+  mutate(pct = n / sum(n))
+
+# 2. are they concentrated across CLUE areas? Seems to be mostly coming from Docklands
+df_large_raw |>
+  filter(is.na(latitude) | is.na(longitude)) |>
+  count(clue_small_area) |>
+  arrange(desc(n)) |>
+  mutate(pct = n / sum(n))
+
+# Function to map industry codes in df_large to their industry divisions as per df_small
+code_to_division <- function(code) {
+  code_num <- suppressWarnings(as.numeric(code))
+  case_when(
+    code_num == 0                 ~ "Vacant / Unclassified",
+    between(code_num, 100, 599)   ~ "Agriculture, Forestry and Fishing",
+    between(code_num, 600, 1099)  ~ "Mining",
+    between(code_num, 1100, 2599) ~ "Manufacturing",
+    between(code_num, 2600, 2999) ~ "Electricity, Gas, Water and Waste Services",
+    between(code_num, 3000, 3299) ~ "Construction",
+    between(code_num, 3300, 3899) ~ "Wholesale Trade",
+    between(code_num, 3900, 4399) ~ "Retail Trade",
+    between(code_num, 4400, 4599) ~ "Accommodation and Food Services",
+    between(code_num, 4600, 5399) ~ "Transport, Postal and Warehousing",
+    between(code_num, 5400, 6099) ~ "Information Media and Telecommunications",
+    between(code_num, 6200, 6499) ~ "Financial and Insurance Services",
+    between(code_num, 6600, 6799) ~ "Rental, Hiring and Real Estate Services",
+    between(code_num, 6900, 7099) ~ "Professional, Scientific and Technical Services",
+    between(code_num, 7200, 7399) ~ "Administrative and Support Services",
+    between(code_num, 7500, 7799) ~ "Public Administration and Safety",
+    between(code_num, 8000, 8299) ~ "Education and Training",
+    between(code_num, 8400, 8799) ~ "Health Care and Social Assistance",
+    between(code_num, 8900, 9299) ~ "Arts and Recreation Services",
+    between(code_num, 9400, 9699) ~ "Other Services",
+    TRUE                           ~ "Unmapped (check code)"
+  )
+}
+
+df_large_clean <- df_large_clean |>
+  mutate(anzsic_division = code_to_division(industry_anzsic4_code))
+
+# Checking for any codes that didn't map. None didnt map
+df_large_clean |>
+  filter(anzsic_division == "Unmapped (check code)") |>
+  distinct(industry_anzsic4_code, industry_anzsic4_description)
+
+# Checking if the divisions in df_large align with that of df_small
+# things in df_large's divisions that df_small doesn't have (excluding Vacant, which df_small excludes by design)
+setdiff(unique(df_large_clean$anzsic_division),
+        c("Vacant / Unclassified", unique(df_small_clean$anzsic_indusrty)))
+
+# things in df_small that never showed up as a division in df_large
+setdiff(unique(df_small_clean$anzsic_indusrty),
+        unique(df_large_clean$anzsic_division))
+
 ```
 
 ## 3. Table 3 — Vacancy/Underutilisation Data from df_large_clean
@@ -347,6 +484,111 @@ vacancy_by_area_year <- df_large_clean |>
 max(vacancy_by_area_year$n_establishments)
 ```
 
+## EDA Plots:
+
+- Plotting the trend between number of All establishments (from df_large) vs. Active establishments (from df_small)
+
+```{r}
+# Aggregate both tables to municipality-wide totals per year (summed across all 13 areas)
+trend_compare <- compare |>
+  group_by(census_year) |>
+  summarise(
+    n_from_df_large = sum(n_from_df_large, na.rm = TRUE),      # all business addresses, incl. vacant
+    n_from_df_small = sum(n_from_df_small, na.rm = TRUE),      # active establishments only
+    .groups = "drop"
+  ) |>
+  mutate(census_year = as.Date(paste0(census_year, "-01-01")))
+
+p_trend <- ggplot(trend_compare, aes(x = census_year)) +
+  geom_line(aes(y = n_from_df_large, color = "All establishments incl. vacant (From large dataset)"), linewidth = 1) +
+  geom_line(aes(y = n_from_df_small, color = "Active establishments (From small aggregated dataset)"), linewidth = 1) +
+  scale_color_manual(values = c("All establishments incl. vacant (From large dataset)" = orange,
+                                 "Active establishments (From small aggregated dataset)" = blue)) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Total Business Addresses vs. Active Establishments, Melbourne (2002–2024)",
+    subtitle = "The widening gap between the two lines is unoccupied/vacant space",
+    x = NULL, y = "Count",
+    color = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top", plot.title = element_text(face = "bold"))
+
+ggsave("plots/trend_active_vs_all.png", plot = p_trend, width = 9, height = 5.5, dpi = 300, bg = "white")
+```
+
+- Plotting Job suppression for rows with number of establishments <= 2
+
+```{r}
+suppression_long <- suppression_check |>
+  select(estab_bucket, jobs_present, jobs_suppressed_n) |>
+  pivot_longer(cols = c(jobs_present, jobs_suppressed_n),
+               names_to = "status", values_to = "n") |>
+  mutate(status = if_else(status == "jobs_suppressed_n", "Jobs data suppressed", "Jobs data present"))
+
+p_suppression_threshold <- ggplot(suppression_long, aes(x = estab_bucket, y = n, fill = status)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(aes(label = scales::comma(n)),
+            position = position_dodge(width = 0.7), vjust = -0.4, size = 4) +
+  geom_text(aes(y = -350,
+                label = if_else(status == "Jobs data present", "Present", "Suppressed")),
+            position = position_dodge(width = 0.7), size = 3, color = "grey30") +
+  scale_fill_manual(values = c("Jobs data present" = blue, "Jobs data suppressed" = red)) +
+  scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(0.08, 0.1))) +
+  coord_cartesian(clip = "off") +
+  labs(
+    title = "Number of Missing vs. Present Observations for Different Numbers of Establishments",
+    subtitle = "Data completeness limitation: every employing business with ≤2 establishments has total_jobs\nsuppressed, and every one with 3+ has it reported",
+    x = "Number of Establishments",
+    y = "Number of rows",
+    fill = NULL,
+    caption = "Excluding Non-employing business sizes (Total_jobs = 0 by definition)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top", plot.title = element_text(face = "bold"),
+        plot.margin = margin(t = 10, r = 10, b = 25, l = 10))
+
+p_suppression_threshold
+
+ggsave("plots/suppression_threshold.png", plot = p_suppression_threshold, width = 9, height = 6, dpi = 300, bg = "white")
+```
+
+- Plotting percentage of each business size's observations that have had total_jobs data suppressed
+
+```{r}
+suppression_by_size <- df_small_clean |>
+  filter(business_size != "Non employing") |>
+  group_by(business_size) |>
+  summarise(
+    n_total = n(),
+    n_suppressed = sum(jobs_suppressed),
+    pct_suppressed = n_suppressed / n_total * 100,
+    .groups = "drop"
+  ) |>
+  arrange(desc(pct_suppressed))
+
+p_suppression_size <- ggplot(suppression_by_size, aes(x = reorder(business_size, pct_suppressed), y = pct_suppressed)) +
+  geom_col(fill = blue, width = 0.6) +
+  geom_text(aes(label = paste0(round(pct_suppressed, 0), "%")),
+            hjust = -0.2, size = 4) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, 100), labels = scales::comma) +
+  labs(
+    title = "Percentage of Rows with Jobs Data Suppressed for each Business Size",
+    subtitle = "Suppression is concentrated in Large and Medium businesses — fewer of them per cell,\nso more cells fall at or below the 2-establishment suppression threshold.",
+    x = NULL,
+    y = "% of rows with jobs data suppressed",
+    caption = "Excluding Non-employing business size (zero jobs by definition, never suppressed)"
+  ) +
+  theme_minimal() + 
+  theme(plot.title = element_text(face = "bold"))
+
+ggsave("plots/suppression_by_size.png", plot = p_suppression_size, width = 8, height = 6, dpi = 300, bg = "white")
+```
+
+- Plotting vacancy rates by region in 2020
+
 ```{r}
 vacancy_by_area_year_2020 <- vacancy_by_area_year |>
   filter(census_year == "2020-01-01") |>
@@ -373,36 +615,131 @@ ggplot(
   theme_minimal()
 ```
 
+- Plotting growth in establishments from 2002 to 2024 by industry 
+
 ```{r}
+# Total % change in active establishments per industry, 2002 → 2024
+# (using establishments over jobs, since jobs is suppression-affected for larger businesses —
+# establishments give a cleaner, complete signal for this comparison)
+
+industry_growth <- yoy_by_industry |>
+  group_by(anzsic_indusrty) |>
+  summarise(
+    first_year_estab = total_active_establishments[which.min(census_year)],
+    last_year_estab  = total_active_establishments[which.max(census_year)],
+    .groups = "drop"
+  ) |>
+  mutate(pct_change = (last_year_estab / first_year_estab - 1) * 100) |>
+  arrange(desc(pct_change))
+
+industry_growth <- industry_growth |>
+  mutate(sector_type = case_when(
+    anzsic_indusrty %in% c("Manufacturing", "Construction", "Mining",
+                            "Agriculture, Forestry and Fishing",
+                            "Electricity, Gas, Water and Waste Services") ~ "Goods-producing",
+    TRUE ~ "Services-producing"
+  ))
+
+industry_growth  # check the spread before plotting
+
+p_industry_growth <- ggplot(industry_growth, aes(x = reorder(anzsic_indusrty, pct_change), y = pct_change)) +
+  geom_col(aes(fill = pct_change > 0), width = 0.7) +
+  geom_text(aes(label = paste0(round(pct_change, 0), "%"),
+                hjust = if_else(pct_change > 0, -0.1, 1.1)),
+            size = 3.2) +
+  scale_fill_manual(values = c("TRUE" = blue, "FALSE" = red), guide = "none") +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Change in Active Establishments by Industry from 2002 to 2024",
+    subtitle = "11 of 19 industries grew, 8 declined, and the spread is wide (+135% to -47%)",
+    x = NULL,
+    y = "% change in active establishments from 2002 to 2024"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+
+p_industry_growth
+
+ggsave("plots/industry_growth.png", plot = p_industry_growth, width = 9.5, height = 7, dpi = 300, bg = "white")
+```
+
+- Plotting vacancy rate trends by region, facetted
+
+```{r}
+# 1. Fit a linear trend (vacancy_rate ~ year) per area, extract slope in pp/year
+vacancy_area_summary <- vacancy_by_area_year |>
+  mutate(year_numeric = as.numeric(format(census_year, "%Y"))) |>
+  group_by(clue_small_area) |>
+  summarise(
+    trend_model = list(lm(vacancy_rate ~ year_numeric, data = pick(everything()))),
+    .groups = "drop"
+  ) |>
+  mutate(slope_pp_per_year = map_dbl(trend_model, ~ coef(.x)[["year_numeric"]] * 100)) |>
+  select(-trend_model) |>
+  arrange(desc(slope_pp_per_year))
+
+# CHECK the actual spread of slopes across all 13 areas
+vacancy_area_summary
+
+# Does Kensington's negative slope survive if you exclude its 2002 starting point?
+kensington_no2002 <- vacancy_by_area_year |>
+  filter(clue_small_area == "Kensington", census_year > as.Date("2002-01-01")) |>
+  mutate(year_numeric = as.numeric(format(census_year, "%Y")))
+
+# Kensington's vacancy rates are trending -0.0035 from 2003-2024
+lm(vacancy_rate ~ year_numeric, data = kensington_no2002) |> coef()
+
+vacancy_area_summary <- vacancy_area_summary |>
+  mutate(
+    vulnerability_category = case_when(
+      clue_small_area == "Kensington" ~ "Stable (Excluding 2002)",  
+      slope_pp_per_year >= 1.0 ~ "Strong upward trend",
+      TRUE ~ "Moderate upward trend"
+    )
+  )
+
+n_strong <- sum(vacancy_area_summary$vulnerability_category == "Strong upward trend")
+
 vacancy_by_area_year_trend <- vacancy_by_area_year |>
   select(census_year, clue_small_area, vacancy_rate) |>
-  group_by(clue_small_area)
+  left_join(vacancy_area_summary |> select(clue_small_area, vulnerability_category),
+            by = "clue_small_area")
 
-# Use faceting instead of one crowded chart
-ggplot(
-  vacancy_by_area_year_trend,
-  aes(x = census_year,
-      y = vacancy_rate)
-) +
-geom_line(size = 1, color = "steelblue") +
-facet_wrap(~ clue_small_area, scales = "free_y") +  # One facet per area
-labs(title = "Melbourne Establishment Vacancy Rates across CLUE areas (2002-2024)",
-     x = "Year",
-     y = "Vacancy Rate (%)") +
-theme_minimal() +
-theme(
-  strip.text = element_text(size = 8, face = "bold"),
-  plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-  axis.text.x = element_text(angle = 45, hjust = 1)
-) +
-scale_y_continuous(labels = scales::percent_format(scale = 1))
+p_vacancy_facet <- ggplot(vacancy_by_area_year_trend,
+       aes(x = census_year, y = vacancy_rate, color = vulnerability_category, group = clue_small_area)) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ clue_small_area, scales = "fixed",
+             labeller = labeller(clue_small_area = label_wrap_gen(15))) +
+  scale_color_manual(values = c("Strong upward trend" = "red",
+                                 "Moderate upward trend" = "lightsalmon",
+                                 "Stable (Excluding 2002)" = "blue")) +
+  scale_y_continuous(labels = scales::percent_format(scale = 100),
+                      breaks = scales::breaks_pretty(n = 5)) +
+  labs(
+    title = "Vacancy Rate Trends across different CLUE Areas from 2002–2024",
+    subtitle = paste0("12 of 13 areas trend upward over the full period — 2 sharply (both West Melbourne\nprecincts) — while Kensington alone remains stable, once its 2002 outlier is accounted for"),
+    x = NULL, y = "Vacancy Rate (%)", color = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 8, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, margin = margin(b = 12)),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+
+ggsave("plots/vacancy_facets.png", plot = p_vacancy_facet, width = 12, height = 10, dpi = 300, bg = "white")
 ```
+
+- Heatmap showing vacancy rates spiking generally after 2020 
 
 ```{r}
 vacancy_heatmap <- vacancy_by_area_year_trend %>%
   mutate(year = census_year)
   
-ggplot(
+p_vacancy_heatmap <- ggplot(
   vacancy_heatmap, 
   aes(x = clue_small_area,
       y = year,
@@ -410,16 +747,19 @@ ggplot(
       ) 
 ) + 
   geom_tile() +
-  scale_fill_gradient(low = "white", high = "blue") +
+  scale_fill_gradient(low = "white", high = "blue",
+                     labels = scales::percent_format(scale = 100)) +
   coord_flip() + 
-  labs(title = "Melbourne Establishments and Vacancies Over Time (2002-2024)",
+  labs(title = "Annual Vacancy Rates over different CLUE Areas from 2002-2024",
+       subtitle = "Vacancy Rates spiked after 2020 Covid shock, and remain largely unrecovered at 2024",
        x = NULL,
        y = NULL,
        fill = "Vacancy Rate") +
   theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-  )
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(face = "bold"))
+
+ggsave("plots/vacancy_heatmap.png", plot = p_vacancy_heatmap, width = 10, height = 8, dpi = 300, bg = "white")
 ```
 
 ```{r}
@@ -484,12 +824,10 @@ library(sf)
 
 clue_boundary <- st_read("small-areas-for-census-of-land-use-and-employment-clue.geojson")
 
-clue_boundary <- clue_boundary %>%
+clue_boundary <- clue_boundary |>
   rename(clue_small_area = featurenam)
 
-library(dplyr)
-
-vacancy_sf <- clue_boundary %>%
+vacancy_sf <- clue_boundary |>
   left_join(vacancy_heatmap_2, by = "clue_small_area")
 
 install.packages("gifski")
