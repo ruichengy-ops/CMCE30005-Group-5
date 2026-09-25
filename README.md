@@ -72,6 +72,7 @@ How were different industries, areas, or business sizes performing from 2002-202
 - **Total Active Establishments**: Count of operating businesses per year (excludes vacant premises)
 - **Total Jobs**: Employment by segment (59% suppressed for Large; 31% for Medium businesses)
 - **Vacancy Rates**: Derived from address-level file to detect economic distress
+- **Growth Rates for Active Establishments/Jobs**: Derived from time series of our first 2 Key Variables
 
 ### Data Quality Issues & Limitations
 
