@@ -1,27 +1,27 @@
 # CMCE30005 Business Analytics Challenge
-## [CMCE30005-Group-5] - [Business establishments in Melbourne Project Brief]
+## CMCE30005-Group-5 - Business establishments in Melbourne Project Brief
 
 **Subject:** CMCE30005 Business Analytics Challenge, Semester 2 2026
 
 **University:** University of Melbourne
 
-**Team Members:** [Yiming Pan], [Ruicheng Yao], [Caleb Lee]
+**Team Members:** Yiming Pan, Ruicheng Yao, Caleb Lee
 
 ---   
 
 ## Business Problem
 
-[How should business support or infrastructure-need assessment policies be planned given the trends in businesses, jobs, industries and business sizes across CLUE areas? ]
+How were different industries, areas, or business sizes performing from 2002-2024 primary by their number of active establishments and which of these segments may be of concern to City of Melbourne decision-makers moving forward?
 
 ---
 
 ## Dataset
 
-**Dataset name:** [Business establishments in Melbourne Project]
+**Dataset name:** Business establishments in Melbourne Project
 
-**Source:** [City of Melbourne Open Data, https://data.melbourne.vic.gov.au/pages/home/]
+**Source:** City of Melbourne Open Data, https://data.melbourne.vic.gov.au/pages/home/
 
-**Coverage:** [Individual Business and Aggregated Counts of Establishments and Jobs]
+**Coverage:** Individual Business and Aggregated Counts of Establishments and Jobs
 
 ### Data Files
 
