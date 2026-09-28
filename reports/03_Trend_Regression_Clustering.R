@@ -197,3 +197,4 @@ cat("Descriptive business trends, regression and clustering\n",
   address_note, "\nDuplicate source cells aggregated: ", duplicated_cells, "\n", sep = "",
   file = file.path(out_dir, "README_findings.txt"))
 cat("Completed. Results: ", normalizePath(out_dir), "\n", sep = "")
+
