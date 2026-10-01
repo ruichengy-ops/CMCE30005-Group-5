@@ -859,3 +859,9 @@ NE_anim = tm_shape(melbourne_boundary) +
 
 tmap_animation(NE_anim, filename = "melbourne_animation_vacancy_rate.gif")
 ```
+
+```{r}
+dir.create(here("data"), showWarnings = FALSE)
+saveRDS(df_small_clean, here("data", "df_small_clean.rds"))
+```
+

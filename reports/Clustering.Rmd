@@ -1,0 +1,697 @@
+---
+title: "Clustering"
+output: html_document
+date: "2026-09-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(recipes) 
+library(cluster)
+library(factoextra)
+library(broom)
+
+# Same colours as workspace.Rmd
+blue   <- "#2a78d6"
+orange <- "#eb6834"
+grey   <- "#d8d8d4"
+red    <- "#e34948"
+
+# Settings you might want to change later
+MIN_EST <- 10   # keep combos averaging at least this many establishments per year
+
+# Helper to save every plot into plots/clustering/
+dir.create(here("plots", "clustering"), recursive = TRUE, showWarnings = FALSE)
+save_plot <- function(p, name, w = 9, h = 6) {
+  ggsave(here("plots", "clustering", paste0(name, ".png")),
+         plot = p, width = w, height = h, dpi = 300, bg = "white")
+}
+```
+
+```{r load-data}
+rds_path <- here("data", "df_small_clean.rds")
+
+if (file.exists(rds_path)) {
+  df_small_clean <- readRDS(rds_path)
+} else {
+  # Fallback: rebuild only what we need straight from the CSV
+  df_small_clean <- read.csv(here("business-establishments-and-jobs-data-by-business-size-and-anzsic.csv")) |>
+    janitor::clean_names() |>
+    rename(total_active_establishments = total_establishments)
+}
+
+# census_year is a Date in workspace.Rmd; turn it back into a plain number (2002, 2003, ...)
+df <- df_small_clean |>
+  mutate(year = if (inherits(census_year, "Date")) as.integer(format(census_year, "%Y"))
+                else as.integer(census_year)) |>
+  select(year, clue_small_area, anzsic_indusrty, business_size, total_active_establishments)
+
+# Quick sanity checks
+range(df$year)                    # expect 2002 2024
+n_distinct(df$clue_small_area)    # expect 13
+n_distinct(df$anzsic_indusrty)    # expect 19
+```
+
+# 1. Build the panel (one row per area x industry x year)
+
+This adds up the business sizes, so we get one count per combo per year. Then it
+**fills in the missing zeros** (the CSV leaves out rows where a combo had 0 businesses).
+
+```{r panel}
+panel <- df |>
+  group_by(clue_small_area, anzsic_indusrty, year) |>
+  summarise(est = sum(total_active_establishments), .groups = "drop") |>
+  complete(clue_small_area, anzsic_indusrty, year = 2002:2024,
+           fill = list(est = 0))
+
+# Every combo should now have all 23 years: 13 areas x 19 industries x 23 years
+stopifnot(nrow(panel) == 13 * 19 * 23)
+
+# How many zeros did we just fill in?
+sum(panel$est == 0)
+
+# Citywide total per year: should match the blue line in interim Figure 2
+panel |> group_by(year) |> summarise(city_total = sum(est)) |> print(n = 23)
+```
+
+**Check:** 5,681 rows; the yearly totals start at 12,139 (2002) and end at 14,338 (2024).
+If the totals don't match Figure 2, something went wrong in loading.
+
+**Understand:** without `complete()`, a combo missing 2011 would silently jump from 2010
+to 2012 in any growth calculation.
+
+We also keep the business-size breakdown on the side. It is **not** a clustering input;
+we use it in Step 8 to describe the clusters.
+
+```{r size-mix}
+size_mix <- df |>
+  group_by(clue_small_area, anzsic_indusrty, business_size) |>
+  summarise(est = sum(total_active_establishments), .groups = "drop")
+```
+
+# 2. Build the five "report card" numbers per combo
+
+Each combo gets one growth number per window. We use the **annualised log change**:
+
+`(log(end + 1) - log(start + 1)) / number_of_years`
+
+The `+ 1` stops log(0) from breaking, and logs calm down silly jumps like 2 → 6.
+Roughly, 0.05 ≈ +5% per year, and -0.05 ≈ -5% per year.
+
+```{r features}
+ann_log_change <- function(from, to, n_years) (log(to + 1) - log(from + 1)) / n_years
+
+features_all <- panel |>
+  pivot_wider(names_from = year, values_from = est, names_prefix = "y") |>
+  mutate(
+    combo    = paste0(anzsic_indusrty, " | ", clue_small_area),
+    mean_est = rowMeans(pick(starts_with("y"))),
+    g_pre_gfc  = ann_log_change(y2002, y2008, 6),   # before GFC
+    g_gfc      = ann_log_change(y2008, y2012, 4),   # GFC
+    g_expand   = ann_log_change(y2012, y2018, 6),   # normal growth years
+    g_covid    = ann_log_change(y2018, y2022, 4),   # COVID hit
+    g_recovery = ann_log_change(y2022, y2024, 2)    # recovery
+  )
+
+feature_cols <- c("g_pre_gfc", "g_gfc", "g_expand", "g_covid", "g_recovery")
+
+# Nice labels for plots later
+feature_labels <- c(g_pre_gfc  = "Pre-GFC\n2002–08",
+                    g_gfc      = "GFC\n2008–12",
+                    g_expand   = "Expansion\n2012–18",
+                    g_covid    = "COVID\n2018–22",
+                    g_recovery = "Recovery\n2022–24")
+```
+
+**Understand:** the five windows add up to the whole 2002–2024 period, so we don't also
+need a separate "overall growth" feature (it would just double-count).
+
+**Known limitation to mention in the report:** each window uses single endpoint years.
+Some areas repeat the previous year's values (not surveyed every year), so an endpoint
+can be slightly stale. Using 2- to 6-year windows keeps this small.
+
+# 3. Drop the tiny combos
+
+```{r filter}
+features <- features_all |> filter(mean_est >= MIN_EST)
+
+# How many combos do we keep, and what share of all establishments do they cover?
+tibble(
+  combos_total   = sum(features_all$mean_est > 0),
+  combos_kept    = nrow(features),
+  pct_est_kept   = sum(features$mean_est) / sum(features_all$mean_est) * 100
+)
+
+# Which industries lose the most combos? (tells you where coverage is thin)
+features_all |>
+  filter(mean_est > 0) |>
+  mutate(kept = mean_est >= MIN_EST) |>
+  count(anzsic_indusrty, kept) |>
+  pivot_wider(names_from = kept, values_from = n, values_fill = 0) |>
+  rename(dropped = `FALSE`, kept = `TRUE`) |>
+  arrange(desc(dropped))
+```
+
+**Check:** you keep roughly 150 combos but still cover almost all establishments
+(tiny combos are many but small). Industries like Mining and Agriculture will lose most
+of their combos; say so in the report ("too small to cluster reliably").
+
+**Try later:** set `MIN_EST <- 5` at the top and re-run. If the clusters tell the same
+story, write "results were robust to the size threshold".
+
+# 4. Look at the features before clustering
+
+```{r explore-hist, fig.height = 4}
+p_feat_hist <- features |>
+  pivot_longer(all_of(feature_cols), names_to = "feature", values_to = "value") |>
+  mutate(feature = factor(feature_labels[feature], levels = feature_labels)) |>
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30, fill = blue) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~ feature, nrow = 1) +
+  labs(title = "Distribution of annualised growth in each window",
+       x = "Annualised log change (0.05 ≈ +5%/yr)", y = "Number of combos") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_feat_hist
+save_plot(p_feat_hist, "01_feature_histograms", w = 11, h = 4)
+```
+
+**Check:** the COVID window should sit mostly left of zero and be wider than the others.
+That's exactly why we standardise in Step 5.
+
+```{r explore-corr, fig.width = 6, fig.height = 5}
+corr_long <- cor(features[, feature_cols]) |>
+  as.data.frame() |>
+  rownames_to_column("var1") |>
+  pivot_longer(-var1, names_to = "var2", values_to = "r")
+
+p_corr <- ggplot(corr_long, aes(var1, var2, fill = r)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = round(r, 2)), size = 3.5) +
+  scale_fill_gradient2(low = red, mid = "white", high = blue, limits = c(-1, 1)) +
+  labs(title = "Correlation between the five growth windows", x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(face = "bold"))
+p_corr
+save_plot(p_corr, "02_feature_correlation", w = 6, h = 5)
+```
+
+**Check:** no pair should be above about 0.8. If two windows were that correlated they
+would be saying the same thing twice. Negative correlations between neighbouring windows
+are normal (a big boom is often followed by a fall back).
+
+```{r explore-outliers}
+# Combos that are extreme (more than 3 SDs from the mean) in any window
+features |>
+  mutate(across(all_of(feature_cols), ~ as.numeric(scale(.x)), .names = "z_{.col}")) |>
+  filter(if_any(starts_with("z_"), ~ abs(.x) > 3)) |>
+  select(combo, mean_est, y2002, y2024, all_of(feature_cols)) |>
+  arrange(desc(mean_est))
+```
+
+**Check:** expect Docklands combos here (it started from almost nothing in 2002).
+k-means is sensitive to outliers, so note which combos these are. If one of them ends up
+alone in its own cluster, that is a sign it's an outlier, not a real segment.
+
+# 5. Standardise
+
+```{r standardise}
+rec <- recipe(~ ., data = features |> select(all_of(feature_cols))) |>
+  step_normalize(all_numeric_predictors())
+
+clust_data <- prep(rec) |> bake(new_data = NULL)
+
+# Verify: every mean ≈ 0, every SD = 1
+clust_data |>
+  pivot_longer(everything(), names_to = "variable") |>
+  group_by(variable) |>
+  summarise(mean = round(mean(value), 4), sd = sd(value))
+```
+
+# 6. How many clusters? (elbow, silhouette, gap)
+
+No sampling needed like in GA_2: we only have ~150 rows.
+
+```{r diag-elbow, fig.width = 7, fig.height = 4.5}
+set.seed(123)
+p_elbow <- fviz_nbclust(clust_data, kmeans, method = "wss", k.max = 10, nstart = 50)
+p_elbow
+save_plot(p_elbow, "03_elbow", w = 7, h = 4.5)
+```
+
+```{r diag-silhouette, fig.width = 7, fig.height = 4.5}
+set.seed(123)
+p_sil <- fviz_nbclust(clust_data, kmeans, method = "silhouette", k.max = 10, nstart = 50)
+p_sil
+save_plot(p_sil, "04_silhouette", w = 7, h = 4.5)
+```
+
+```{r diag-gap, fig.width = 7, fig.height = 4.5}
+set.seed(123)
+p_gap <- fviz_nbclust(clust_data, kmeans, method = "gap_stat", k.max = 10,
+                      nstart = 25, iter.max = 50, nboot = 100)
+p_gap
+save_plot(p_gap, "05_gap", w = 7, h = 4.5)
+```
+
+**Understand:**
+
+- **Elbow:** where adding another cluster stops helping much.
+- **Silhouette:** how clearly each combo belongs to its cluster. Above ~0.25 is "some
+  real structure"; above ~0.5 is strong. Don't expect strong with real economic data.
+- **Gap:** whether the clusters are better than what random data would give.
+
+They will probably disagree. Pick a k in the range they point to that gives clusters you
+can explain, and **write down why** in the report.
+
+# 7. Fit k-means and check it's stable
+
+```{r choose-k}
+K <- 4
+```
+
+```{r fit}
+set.seed(123)
+km <- kmeans(clust_data, centers = K, nstart = 50, iter.max = 50)
+
+# k-means numbers clusters randomly. Re-number them so cluster 1 = weakest overall
+# growth and cluster K = strongest. This keeps labels the same every time you re-run.
+overall_growth <- rowSums(features[, feature_cols] * c(6, 4, 6, 4, 2)[col(features[, feature_cols])])
+cluster_order  <- tapply(overall_growth, km$cluster, mean) |> rank()
+cluster_vec    <- as.integer(cluster_order[as.character(km$cluster)])
+
+table(cluster_vec)
+```
+
+**Check:** no cluster should have only 1–3 combos. If one does, it's probably an outlier
+from Step 4; try a smaller K or note it as a special case.
+
+```{r silhouette-fit, fig.height = 5}
+sil <- silhouette(cluster_vec, dist(clust_data))
+summary(sil)$clus.avg.widths   # average silhouette per cluster
+p_sil_fit <- fviz_silhouette(sil, print.summary = FALSE) +
+  labs(title = paste0("Silhouette for k = ", K)) +
+  theme_minimal()
+p_sil_fit
+save_plot(p_sil_fit, "06_silhouette_fit")
+```
+
+**Understand:** each bar is one combo. Bars below zero are combos that sit closer to a
+different cluster than their own ("fence-sitters"). A few are normal; lots of them in one
+cluster means that cluster is weak.
+
+```{r stability}
+# (a) Different random seeds: do we get the same clusters?
+ari_seeds <- map_dbl(1:20, function(s) {
+  set.seed(s)
+  mclust::adjustedRandIndex(cluster_vec, kmeans(clust_data, K, nstart = 50)$cluster)
+})
+
+# (b) Bootstrap: refit on a random 80% of combos, compare on the combos they share
+ari_boot <- map_dbl(1:100, function(b) {
+  set.seed(1000 + b)
+  idx <- sample(nrow(clust_data), floor(0.8 * nrow(clust_data)))
+  fit <- kmeans(clust_data[idx, ], K, nstart = 25)
+  mclust::adjustedRandIndex(cluster_vec[idx], fit$cluster)
+})
+
+# (c) PAM: a more outlier-resistant cousin of k-means. Does it agree?
+pam_fit <- pam(clust_data, K)
+ari_pam <- mclust::adjustedRandIndex(cluster_vec, pam_fit$clustering)
+
+tibble(
+  check = c("Different seeds (median ARI)", "Bootstrap 80% (median ARI)",
+            "Bootstrap 80% (worst 10% ARI)", "k-means vs PAM (ARI)"),
+  value = round(c(median(ari_seeds), median(ari_boot),
+                  quantile(ari_boot, 0.1), ari_pam), 2)
+)
+
+table(kmeans = cluster_vec, pam = pam_fit$clustering)
+```
+
+**Understand ARI (adjusted Rand index):** 1 = identical clusters, 0 = no better than random.
+Rough guide: above 0.8 very stable, 0.6–0.8 reasonably stable, below 0.5 shaky.
+
+**Check:** seeds should be ~1 (nstart = 50 makes this easy). The bootstrap is the real test.
+In the PAM table, each k-means cluster should mostly map onto one PAM cluster (the column
+order may differ, that's fine).
+
+# 8. PCA picture
+
+k-means used 5 numbers per combo; we can't draw 5 dimensions, so PCA squashes them into 2.
+
+```{r pca}
+pca <- prcomp(clust_data)   # already standardised, so no extra scaling
+
+# How much of the information each component keeps
+p_scree <- fviz_eig(pca, addlabels = TRUE) + theme_minimal()
+p_scree
+save_plot(p_scree, "07_pca_scree", w = 7, h = 4.5)
+
+# Loadings: what each component "means"
+round(pca$rotation[, 1:2], 2)
+```
+
+**Understand the loadings:** big positive or negative numbers tell you what drives each
+axis. E.g. if PC1 loads strongly on pre-GFC and expansion growth, call it "long-run growth";
+if PC2 is mostly the COVID window, call it "COVID sensitivity". Name them in the report
+instead of writing "Dim1 (xx%)".
+
+```{r pca-biplot, fig.width = 9, fig.height = 7}
+p_biplot <- fviz_pca_biplot(pca,
+                            geom.ind = "point",
+                            habillage = factor(cluster_vec),
+                            addEllipses = TRUE, ellipse.type = "convex",
+                            col.var = "black", repel = TRUE,
+                            title = "Clusters on the first two principal components") +
+  theme_minimal()
+p_biplot
+save_plot(p_biplot, "08_pca_biplot", w = 9, h = 7)
+```
+
+**Understand:** arrows show which direction each growth window pushes a combo. Clusters
+sitting on the side an arrow points to are strong in that window.
+
+```{r pca-labelled, fig.width = 10, fig.height = 7}
+# Same picture, but points sized by number of establishments, with the biggest labelled
+pca_scores <- as_tibble(pca$x[, 1:2]) |>
+  bind_cols(features |> select(combo, mean_est)) |>
+  mutate(cluster = factor(cluster_vec))
+
+p_pca_size <- ggplot(pca_scores, aes(PC1, PC2, colour = cluster)) +
+  geom_point(aes(size = mean_est), alpha = 0.7) +
+  geom_text(data = slice_max(pca_scores, mean_est, n = 10),
+            aes(label = combo), size = 2.6, vjust = -1, show.legend = FALSE) +
+  scale_size_area(max_size = 12, labels = scales::comma) +
+  labs(title = "Where the establishments sit",
+       subtitle = "Point size = average establishments per year; 10 largest combos labelled",
+       size = "Avg establishments", colour = "Cluster") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_pca_size
+save_plot(p_pca_size, "09_pca_sized", w = 10, h = 7)
+```
+
+# 9. Describe each cluster (the insights part)
+
+```{r join}
+clustered <- features |> mutate(cluster = factor(cluster_vec))
+```
+
+## 9a. Size of each cluster and its "report card"
+
+```{r profile-table}
+# Convert log changes back to approximate % per year for readability
+to_pct <- function(g) (exp(g) - 1) * 100
+
+cluster_profile <- clustered |>
+  group_by(cluster) |>
+  summarise(
+    n_combos      = n(),
+    avg_estabs    = sum(mean_est),
+    across(all_of(feature_cols), ~ round(to_pct(median(.x)), 1)),
+    .groups = "drop"
+  ) |>
+  mutate(pct_of_city_estabs = round(avg_estabs / sum(avg_estabs) * 100, 1)) |>
+  relocate(pct_of_city_estabs, .after = avg_estabs)
+
+cluster_profile
+```
+
+**Understand:** the growth columns are the **median % change per year** in each window
+for combos in that cluster. `pct_of_city_estabs` tells you how much of Melbourne's
+business base each cluster represents: a policy-relevant number for the report.
+
+```{r profile-heatmap, fig.height = 4}
+centroids <- clust_data |>
+  mutate(cluster = factor(cluster_vec)) |>
+  group_by(cluster) |>
+  summarise(across(everything(), mean)) |>
+  pivot_longer(-cluster, names_to = "feature", values_to = "z") |>
+  mutate(feature = factor(feature_labels[feature], levels = feature_labels))
+
+p_centroids <- ggplot(centroids, aes(feature, cluster, fill = z)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = round(z, 1)), size = 4) +
+  scale_fill_gradient2(low = red, mid = "white", high = blue) +
+  labs(title = "Cluster 'report cards'",
+       subtitle = "Standardised growth vs the average combo (0 = average, +1 = 1 SD above)",
+       x = NULL, y = "Cluster", fill = "SDs from\naverage") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_centroids
+save_plot(p_centroids, "10_cluster_report_cards", w = 9, h = 4)
+```
+
+**Understand:** red = this cluster did worse than typical in that window, blue = better.
+Read across a row to get each cluster's story (e.g. "grew fast pre-GFC, crashed hardest in
+COVID, weak recovery").
+
+## 9b. Year: trajectory of each cluster
+
+```{r trajectory-total}
+traj <- panel |>
+  inner_join(clustered |> select(clue_small_area, anzsic_indusrty, cluster),
+             by = c("clue_small_area", "anzsic_indusrty")) |>
+  group_by(cluster, year) |>
+  summarise(est = sum(est), .groups = "drop") |>
+  group_by(cluster) |>
+  mutate(index = est / est[year == 2002] * 100) |>
+  ungroup()
+
+p_traj <- ggplot(traj, aes(year, index, colour = cluster)) +
+  annotate("rect", xmin = 2008, xmax = 2010, ymin = -Inf, ymax = Inf,
+           fill = blue, alpha = 0.08) +
+  annotate("rect", xmin = 2020, xmax = 2022, ymin = -Inf, ymax = Inf,
+           fill = orange, alpha = 0.12) +
+  geom_hline(yintercept = 100, linetype = "dashed", colour = "grey50") +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 1.5) +
+  labs(title = "Active establishments by cluster, 2002 = 100",
+       subtitle = "Shading: GFC 2008–2010 (blue), COVID 2020–2022 (orange)",
+       x = "Census year", y = "Index (2002 = 100)", colour = "Cluster") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_traj
+save_plot(p_traj, "11_cluster_trajectories")
+```
+
+**Check:** a cluster that started from a tiny 2002 base (Docklands-heavy) will shoot up
+on this index. If so, the next plot is the fairer comparison.
+
+```{r trajectory-spaghetti, fig.height = 7}
+# Each combo's line relative to its own 2002–24 average, plus the cluster median in bold
+traj_combo <- panel |>
+  inner_join(clustered |> select(clue_small_area, anzsic_indusrty, cluster, mean_est, combo),
+             by = c("clue_small_area", "anzsic_indusrty")) |>
+  mutate(rel = est / mean_est * 100)
+
+traj_median <- traj_combo |>
+  group_by(cluster, year) |>
+  summarise(rel = median(rel), .groups = "drop")
+
+p_spaghetti <- ggplot(traj_combo, aes(year, rel)) +
+  annotate("rect", xmin = 2008, xmax = 2010, ymin = -Inf, ymax = Inf,
+           fill = blue, alpha = 0.08) +
+  annotate("rect", xmin = 2020, xmax = 2022, ymin = -Inf, ymax = Inf,
+           fill = orange, alpha = 0.12) +
+  geom_line(aes(group = combo), colour = "grey70", alpha = 0.5) +
+  geom_line(data = traj_median, colour = red, linewidth = 1.3) +
+  geom_hline(yintercept = 100, linetype = "dashed") +
+  facet_wrap(~ cluster, labeller = label_both) +
+  coord_cartesian(ylim = c(0, 250)) +
+  labs(title = "Every combo's path, grouped by cluster",
+       subtitle = "Grey = one area-industry combo; red = cluster median. 100 = that combo's 2002–24 average",
+       x = "Census year", y = "Establishments (% of own average)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_spaghetti
+save_plot(p_spaghetti, "12_cluster_spaghetti", w = 10, h = 7)
+```
+
+**Check:** grey lines within a panel should roughly follow the red line. If a panel's
+grey lines go in all directions, that cluster isn't a clean segment.
+
+## 9c. Industry and area: the full map
+
+```{r grid-map, fig.width = 11, fig.height = 8}
+grid <- features_all |>
+  select(clue_small_area, anzsic_indusrty, mean_est) |>
+  left_join(clustered |> select(clue_small_area, anzsic_indusrty, cluster),
+            by = c("clue_small_area", "anzsic_indusrty")) |>
+  mutate(cluster = fct_na_value_to_level(cluster, level = "Too small"))
+
+p_grid <- ggplot(grid, aes(clue_small_area, anzsic_indusrty, fill = cluster)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = ifelse(mean_est >= MIN_EST, round(mean_est), "")), size = 2.5) +
+  scale_fill_manual(values = c(setNames(scales::hue_pal()(K), 1:K), "Too small" = grey)) +
+  labs(title = "Which cluster each industry-in-an-area belongs to",
+       subtitle = paste0("Number = average active establishments per year; grey = fewer than ",
+                         MIN_EST, " per year (not clustered)"),
+       x = NULL, y = NULL, fill = "Cluster") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(face = "bold"),
+        panel.grid = element_blank())
+p_grid
+save_plot(p_grid, "13_area_industry_grid", w = 11, h = 8)
+```
+
+**Understand:** this is probably your single most useful exhibit.
+
+- A **row mostly one colour** means that industry behaves the same everywhere: an
+  industry-wide story.
+- A **column mostly one colour** means that area drags all its industries along: an
+  area story.
+- A **patchwork** means it depends on the specific combination, which is the insight
+  the separate area and industry analyses couldn't show.
+
+```{r industry-area-shares, fig.width = 10, fig.height = 7}
+# For each industry: what share of its establishments falls in each cluster?
+p_ind_share <- clustered |>
+  group_by(anzsic_indusrty, cluster) |>
+  summarise(est = sum(mean_est), .groups = "drop") |>
+  ggplot(aes(x = est, y = fct_reorder(anzsic_indusrty, est, sum), fill = cluster)) +
+  geom_col(position = "fill") +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Share of each industry's establishments in each cluster",
+       x = "Share of establishments", y = NULL, fill = "Cluster") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_ind_share
+save_plot(p_ind_share, "14_industry_share", w = 10, h = 7)
+
+p_area_share <- clustered |>
+  group_by(clue_small_area, cluster) |>
+  summarise(est = sum(mean_est), .groups = "drop") |>
+  ggplot(aes(x = est, y = fct_reorder(clue_small_area, est, sum), fill = cluster)) +
+  geom_col(position = "fill") +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Share of each area's establishments in each cluster",
+       x = "Share of establishments", y = NULL, fill = "Cluster") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_area_share
+save_plot(p_area_share, "15_area_share", w = 10, h = 6)
+```
+
+**Understand:** these are weighted by establishments, so a big combo counts more than a
+small one. That's what you want for policy statements like "70% of Retail establishments
+are in the COVID-hit cluster".
+
+## 9d. Business size mix
+
+```{r size-profile, fig.height = 5}
+size_by_cluster <- size_mix |>
+  inner_join(clustered |> select(clue_small_area, anzsic_indusrty, cluster),
+             by = c("clue_small_area", "anzsic_indusrty")) |>
+  group_by(cluster, business_size) |>
+  summarise(est = sum(est), .groups = "drop") |>
+  group_by(cluster) |>
+  mutate(share = est / sum(est)) |>
+  ungroup()
+
+# Citywide mix, for comparison
+size_city <- size_mix |>
+  group_by(business_size) |>
+  summarise(est = sum(est)) |>
+  mutate(cluster = "City", share = est / sum(est))
+
+size_plot_data <- bind_rows(size_by_cluster |> mutate(cluster = as.character(cluster)),
+                            size_city) |>
+  mutate(business_size = factor(business_size,
+                                levels = c("Non employing", "Small business",
+                                           "Medium business", "Large business")))
+
+p_size <- ggplot(size_plot_data, aes(x = cluster, y = share, fill = business_size)) +
+  geom_col() +
+  geom_text(aes(label = scales::percent(share, accuracy = 1)),
+            position = position_stack(vjust = 0.5), size = 3) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("Non employing" = grey, "Small business" = blue,
+                               "Medium business" = orange, "Large business" = red)) +
+  labs(title = "Business-size mix of each cluster",
+       subtitle = "Share of establishments, all years combined; 'City' = Melbourne overall",
+       x = "Cluster", y = NULL, fill = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+p_size
+save_plot(p_size, "16_size_mix", w = 8, h = 5)
+```
+
+**Understand:** compare each cluster's bar to the City bar. A cluster with a noticeably
+bigger small-business share than the city is relevant to the Lord Mayor's small-business
+focus.
+
+**Limitation to mention:** size mix here is pooled over all years, and size is just a
+description; it wasn't used to form the clusters.
+
+## 9e. Who is in each cluster?
+
+```{r membership}
+clustered |>
+  arrange(cluster, desc(mean_est)) |>
+  mutate(across(all_of(feature_cols), ~ round(to_pct(.x), 1))) |>
+  select(cluster, combo, mean_est, y2002, y2018, y2024, all_of(feature_cols)) |>
+  group_by(cluster) |>
+  slice_head(n = 10) |>
+  print(n = Inf)
+```
+
+**Understand:** the 10 biggest combos per cluster. Use these as concrete examples in the
+report ("e.g. Food services in the CBD and Southbank").
+
+# 10. Name the clusters
+
+Fill this in **after** reading 9a–9e. Names should describe behaviour, not just
+"Cluster 1".
+
+```{r names}
+cluster_names <- tibble(
+  cluster = factor(1:K),
+  name    = paste("Cluster", 1:K)   # e.g. "Structural decliners", "COVID-hit, recovering", ...
+)
+cluster_names
+```
+
+# 11. Save results for the report / teammates
+
+```{r save}
+clustered_out <- clustered |>
+  left_join(cluster_names, by = "cluster") |>
+  select(clue_small_area, anzsic_indusrty, combo, cluster, name, mean_est,
+         all_of(feature_cols))
+
+saveRDS(clustered_out, here("data", "clusters_area_industry.rds"))
+write_csv(clustered_out, here("data", "clusters_area_industry.csv"))
+```
+
+
