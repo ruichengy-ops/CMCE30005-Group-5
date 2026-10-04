@@ -694,4 +694,82 @@ saveRDS(clustered_out, here("data", "clusters_area_industry.rds"))
 write_csv(clustered_out, here("data", "clusters_area_industry.csv"))
 ```
 
+# Stability tests
+
+```{r}
+run_km <- function(feat, k = K, cols = feature_cols) {
+  set.seed(123)
+  setNames(kmeans(scale(feat[, cols]), k, nstart = 50)$cluster, feat$combo)
+}
+compare_to_base <- function(new) {
+  base <- setNames(cluster_vec, features$combo)
+  shared <- intersect(names(base), names(new))
+  mclust::adjustedRandIndex(base[shared], new[shared])
+}
+
+# (a) Size threshold: does dropping more or fewer tiny combos change things?
+map_dfr(c(5, 15, 20), \(m) tibble(
+  MIN_EST = m, n_combos = sum(features_all$mean_est >= m),
+  ARI = compare_to_base(run_km(filter(features_all, mean_est >= m)))))
+
+# (b) Time windows: shift the endpoints a year (also helps with the carried-forward years)
+features_shift <- features |> mutate(
+  g_pre_gfc  = ann_log_change(y2002, y2009, 7), g_gfc   = ann_log_change(y2009, y2013, 4),
+  g_expand   = ann_log_change(y2013, y2019, 6), g_covid = ann_log_change(y2019, y2022, 3),
+  g_recovery = ann_log_change(y2022, y2024, 2))
+compare_to_base(run_km(features_shift))
+
+# (c) Drop one window at a time: does any single period decide everything?
+map_dfr(feature_cols, \(f) tibble(
+  dropped = f, ARI = compare_to_base(run_km(features, cols = setdiff(feature_cols, f)))))
+
+# (d) Outliers: re-run without Docklands
+compare_to_base(run_km(filter(features, clue_small_area != "Docklands")))
+
+# (e) Neighbouring K: how do the clusters split or merge at K = 3 and 5?
+table(K4 = cluster_vec, K3 = run_km(features, k = 3))
+table(K4 = cluster_vec, K5 = run_km(features, k = 5))
+
+hc <- hclust(dist(clust_data), method = "ward.D2")
+mclust::adjustedRandIndex(cluster_vec, cutree(hc, K))
+
+table(kmeans = cluster_vec, ward = cutree(hc, K))
+table(kmeans = cluster_vec, pam = pam_fit$clustering)
+
+base <- setNames(cluster_vec, features$combo)
+
+runs <- list(
+  base         = base,
+  min5         = run_km(filter(features_all, mean_est >= 5)),
+  min15        = run_km(filter(features_all, mean_est >= 15)),
+  min20        = run_km(filter(features_all, mean_est >= 20)),
+  windows      = run_km(features_shift),
+  no_docklands = run_km(filter(features, clue_small_area != "Docklands")),
+  K3           = run_km(features, k = 3),
+  K5           = run_km(features, k = 5),
+  pam          = setNames(pam_fit$clustering, features$combo),
+  ward         = setNames(cutree(hc, K), features$combo)
+)
+
+# In each run, find the cluster holding most of our cluster-1 combos, and flag its members
+flag_decliners <- function(new) {
+  b1 <- intersect(names(base)[base == 1], names(new))
+  target <- as.integer(names(which.max(table(new[b1]))))
+  new == target
+}
+
+consensus <- map(runs, flag_decliners) |>
+  map(\(x) enframe(x, "combo", "flagged")) |>
+  bind_rows(.id = "run") |>
+  group_by(combo) |>
+  summarise(n_runs = n(), n_flagged = sum(flagged), pct_flagged = n_flagged / n_runs) |>
+  filter(n_flagged > 0) |>
+  arrange(desc(pct_flagged), desc(n_flagged))
+
+consensus |> print(n = 40)
+```
+
+
+
+
 
