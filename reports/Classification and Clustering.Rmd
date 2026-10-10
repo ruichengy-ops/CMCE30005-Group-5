@@ -447,6 +447,144 @@ save_plot(p_class_area, "18_class_by_area", w = 12, h = 7)
 **Result:** 
 at ±1%, 28 combos are stable or growing, 13 are Covid setback, Recovered, 34 are Covid setback, Recovering, 44 are Covid setback, No recovery yet, and 34 are in long-run decline. The three Covid setback classes cover 91 combos and about 78% of establishments. The labels are not fragile: 9 combos (5.9%) change class at ±0.5% and 11 (7.2%) at ±1.5%, below the pre-set 20% threshold. Long-run decline is the most sensitive class (38 combos at ±0.5%, 26 at ±1.5%), because many 16-year growth rates sit close to ±1% a year.
 
+# 3c. Financial track: rule-based classification (size x area)
+
+Same rules, thresholds and function as 3b, applied to 13 areas x 4 business sizes = 52 cells.
+Cells averaging fewer than `MIN_EST` (10) establishments a year are not classified, the same
+rule as the planning track (growth rates from tiny counts are noise). They are shown grey in
+the grid.
+
+**Set before running (same as 3b):** flat band +/-1% a year; sensitivity bands +/-0.5% and
++/-1.5%; labels fragile if more than 20% of cells change class.
+
+```{r size-cells}
+size_levels <- c("Non employing", "Small business", "Medium business", "Large business")
+
+size_panel <- df |>
+  group_by(clue_small_area, business_size, year) |>
+  summarise(est = sum(total_active_establishments), .groups = "drop") |>
+  complete(clue_small_area, business_size, year = 2002:2024, fill = list(est = 0))
+stopifnot(nrow(size_panel) == 13 * 4 * 23)
+
+cells_all <- size_panel |>
+  pivot_wider(names_from = year, values_from = est, names_prefix = "y") |>
+  mutate(
+    business_size = factor(business_size, levels = size_levels),
+    cell       = paste0(business_size, " | ", clue_small_area),
+    mean_est   = rowMeans(pick(starts_with("y"))),
+    small_cell = mean_est < MIN_EST,
+    g_long     = ann_log_change(y2002, y2018, 16),
+    g_covid    = ann_log_change(y2018, y2022, 4),
+    g_recovery = ann_log_change(y2022, y2024, 2),
+    story      = classify_story(g_long, g_covid, g_recovery),
+    story      = replace(story, small_cell, NA),          # too small to classify
+    pattern    = paste0(direction(g_long), direction(g_covid), direction(g_recovery))
+  )
+
+cells <- cells_all |> filter(!small_cell)
+
+# How many cells are kept, and what share of establishments do they cover?
+tibble(cells_total = nrow(cells_all),
+       cells_kept  = nrow(cells),
+       pct_est_kept = round(sum(cells$mean_est) / sum(cells_all$mean_est) * 100, 1))
+
+# Which cells are dropped?
+cells_all |> filter(small_cell) |> select(cell, mean_est)
+
+# Kept cells with a zero at a window endpoint (log(x + 1) matters here)
+sum(apply(cells[, c("y2002", "y2018", "y2022", "y2024")] == 0, 1, any))
+```
+
+**Check:** expect 46 of 52 cells kept. The 6 dropped are Large business in Kensington,
+North Melbourne, South Yarra, West Melbourne (Industrial) and West Melbourne (Residential),
+plus Medium business in South Yarra.
+
+```{r size-results}
+# Class table: cells and share of establishments
+cells |>
+  group_by(story, .drop = FALSE) |>
+  summarise(n_cells = n(), est = sum(mean_est), .groups = "drop") |>
+  mutate(pct_est = round(est / sum(est) * 100, 1)) |>
+  select(-est)
+
+# Class counts by business size
+cells |> count(business_size, story, .drop = FALSE) |>
+  pivot_wider(names_from = business_size, values_from = n)
+
+# Severity by business size: where each size stands vs 2018
+to_pct <- function(g) (exp(g) - 1) * 100
+cells |>
+  group_by(business_size) |>
+  summarise(n_cells          = n(),
+            covid_median     = round(to_pct(median(g_covid)), 1),
+            recovery_median  = round(to_pct(median(g_recovery)), 1),
+            pct_vs_2018      = round((sum(y2024) / sum(y2018) - 1) * 100, 1),
+            est_change_18_24 = sum(y2024) - sum(y2018))
+```
+
+```{r size-sensitivity}
+sens_size <- map_dfr(SENS_BANDS, \(b) tibble(
+  band    = b,
+  changed = sum(classify_story(cells$g_long, cells$g_covid, cells$g_recovery, b) != cells$story)))
+sens_size |> mutate(pct_changed = round(changed / nrow(cells) * 100, 1),
+                    fragile     = changed / nrow(cells) > SENS_MAX)
+```
+
+```{r size-grid, fig.width = 9, fig.height = 6}
+too_small <- "Too small (<10 a year)"
+
+p_size_grid <- cells_all |>
+  mutate(fill_class = fct_na_value_to_level(story, level = too_small)) |>
+  ggplot(aes(business_size, fct_rev(clue_small_area), fill = fill_class)) +
+  geom_tile(colour = "white") +
+  scale_fill_manual(values = c(class_cols, setNames(grey, too_small)), drop = FALSE) +
+  labs(title = "Classification by business size and area",
+       subtitle = "Grey = averages fewer than 10 establishments a year (not classified)",
+       x = NULL, y = NULL, fill = NULL) +
+  guides(fill = guide_legend(nrow = 2)) +
+  theme_minimal() +
+  theme(legend.position = "bottom", panel.grid = element_blank(),
+        plot.title = element_text(face = "bold"))
+p_size_grid
+save_plot(p_size_grid, "20_class_by_size_area", w = 10, h = 7)
+
+# Same chart as plot_class_share (3b), but for the financial track's size x area cells
+plot_class_share_cells <- function(by, title, caption = NULL) {
+  dat <- cells |>
+    group_by(unit = {{ by }}) |>
+    mutate(unit = paste0(unit, " (", n(), ")")) |>          # (n) = number of cells
+    group_by(unit, story) |>
+    summarise(est = sum(mean_est), .groups = "drop") |>
+    group_by(unit) |>
+    mutate(share    = est / sum(est),
+           not_back = sum(share[story %in% c("Covid setback, No recovery yet",
+                                             "Long-run decline")])) |>
+    ungroup()
+
+  ggplot(dat, aes(share, fct_reorder(unit, not_back), fill = story)) +
+    geom_col(position = position_stack(reverse = TRUE)) +
+    scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+    scale_fill_manual(values = class_cols, drop = FALSE) +
+    labs(title = title,
+         subtitle = "Share of establishments (average per year); (n) = number of cells",
+         caption = caption, x = NULL, y = NULL, fill = NULL) +
+    guides(fill = guide_legend(nrow = 2)) +
+    theme_minimal() +
+    theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+}
+
+p_class_size <- plot_class_share_cells(business_size, "Classification by business size",
+  caption = "Excludes 6 cells averaging fewer than 10 establishments a year (5 Large, 1 Medium).")
+p_class_size
+save_plot(p_class_size, "21_class_by_size", w = 12, h = 5)
+
+p_class_area_fin <- plot_class_share_cells(clue_small_area, "Classification by area (size x area cells)")
+p_class_area_fin
+save_plot(p_class_area_fin, "22_class_by_area_financial", w = 12, h = 7)
+```
+
+**Result:** _(fill in after running)_
+
 # 4. Look at the features before clustering
 
 ```{r explore-hist, fig.height = 4}
