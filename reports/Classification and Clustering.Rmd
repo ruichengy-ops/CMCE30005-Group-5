@@ -115,14 +115,19 @@ size_mix <- df |>
   summarise(est = sum(total_active_establishments), .groups = "drop")
 ```
 
-# 2. Build the five "report card" numbers per combo
+# 2. Build the three "report card" numbers per combo
 
-Each combo gets one growth number per window. We use the **annualised log change**:
+Each combo gets one growth number per window. The three windows are 2002–18 (long run,
+before COVID), 2018–22 (COVID) and 2022–24 (recovery). We use the **annualised log change**:
 
 `(log(end + 1) - log(start + 1)) / number_of_years`
 
 The `+ 1` stops log(0) from breaking, and logs calm down silly jumps like 2 → 6.
 Roughly, 0.05 ≈ +5% per year, and -0.05 ≈ -5% per year.
+
+**Why these windows:** the interim showed the conclusion flips depending on the period
+compared, so we need several. The GFC boundaries (2008, 2012) were dropped after a dip test
+in 2b below (7 of 19 industries dipped, against a pre-set threshold of 10; COVID: 15 of 19).
 
 ```{r features}
 ann_log_change <- function(from, to, n_years) (log(to + 1) - log(from + 1)) / n_years
@@ -130,31 +135,77 @@ ann_log_change <- function(from, to, n_years) (log(to + 1) - log(from + 1)) / n_
 features_all <- panel |>
   pivot_wider(names_from = year, values_from = est, names_prefix = "y") |>
   mutate(
-    combo    = paste0(anzsic_indusrty, " | ", clue_small_area),
-    mean_est = rowMeans(pick(starts_with("y"))),
-    g_pre_gfc  = ann_log_change(y2002, y2008, 6),   # before GFC
-    g_gfc      = ann_log_change(y2008, y2012, 4),   # GFC
-    g_expand   = ann_log_change(y2012, y2018, 6),   # normal growth years
-    g_covid    = ann_log_change(y2018, y2022, 4),   # COVID hit
+    combo      = paste0(anzsic_indusrty, " | ", clue_small_area),
+    mean_est   = rowMeans(pick(starts_with("y"))),
+    g_long     = ann_log_change(y2002, y2018, 16),  # long run, before COVID
+    g_covid    = ann_log_change(y2018, y2022, 4),   # COVID
     g_recovery = ann_log_change(y2022, y2024, 2)    # recovery
   )
 
-feature_cols <- c("g_pre_gfc", "g_gfc", "g_expand", "g_covid", "g_recovery")
+feature_cols   <- c("g_long", "g_covid", "g_recovery")
 
 # Nice labels for plots later
-feature_labels <- c(g_pre_gfc  = "Pre-GFC\n2002–08",
-                    g_gfc      = "GFC\n2008–12",
-                    g_expand   = "Expansion\n2012–18",
+feature_labels <- c(g_long     = "Long run\n2002–18",
                     g_covid    = "COVID\n2018–22",
                     g_recovery = "Recovery\n2022–24")
 ```
 
-**Understand:** the five windows add up to the whole 2002–2024 period, so we don't also
+**Understand:** the three windows add up to the whole 2002–2024 period, so we don't also
 need a separate "overall growth" feature (it would just double-count).
 
-**Known limitation to mention in the report:** each window uses single endpoint years.
-Some areas repeat the previous year's values (not surveyed every year), so an endpoint
-can be slightly stale. Using 2- to 6-year windows keeps this small.
+**Known limitations to mention in the report:**
+
+- Each window uses single endpoint years. Some areas repeat the previous year's values
+  (not surveyed every year), so an endpoint can be slightly stale. This matters most for
+  the 2-year recovery window, where one stale endpoint is a large share of the period.
+- A per-year growth rate is a looser summary of a 16-year window than of a 2-year window,
+  and the short-window rates are the noisiest.
+
+# 2b. Is the GFC window a real shock?
+
+A shock should show up as a dip: growth over 2008-12 lower than the windows either side.
+COVID (2018-22 vs 2012-18 and 2022-24) is the benchmark for what a real shock looks like.
+With three noisy windows, the middle one is lowest ~1 time in 3 by chance (~6 of 19 industries).
+
+**Threshold, set before running:** the GFC window counts as a shock if >= 10 of 19 industries dip.
+
+```{r gfc-dip-test}
+GFC_THRESHOLD <- 10
+
+ind_year <- panel |>
+  group_by(anzsic_indusrty, year) |>
+  summarise(est = sum(est), .groups = "drop") |>
+  pivot_wider(names_from = year, values_from = est, names_prefix = "y")
+
+dip_test <- ind_year |>
+  mutate(g_0208 = ann_log_change(y2002, y2008, 6),
+         g_0812 = ann_log_change(y2008, y2012, 4),
+         g_1218 = ann_log_change(y2012, y2018, 6),
+         g_1822 = ann_log_change(y2018, y2022, 4),
+         g_2224 = ann_log_change(y2022, y2024, 2),
+         gfc_dip   = g_0812 < g_0208 & g_0812 < g_1218,
+         covid_dip = g_1822 < g_1218 & g_1822 < g_2224) |>
+  select(anzsic_indusrty, starts_with("g_"), gfc_dip, covid_dip)
+
+# Growth shown as % per year
+dip_test |>
+  mutate(across(starts_with("g_"), \(g) round((exp(g) - 1) * 100, 1))) |>
+  arrange(anzsic_indusrty)
+
+tibble(window   = c("GFC 2008-12", "COVID 2018-22", "Chance (approx.)"),
+       dips     = c(sum(dip_test$gfc_dip), sum(dip_test$covid_dip), round(19 / 3)),
+       of       = 19)
+
+# TRUE = GFC is a real shock (keep its boundaries); FALSE = drop them
+sum(dip_test$gfc_dip) >= GFC_THRESHOLD
+```
+
+**Result:** GFC dips in 7/19 industries (chance ~6), COVID in 15/19, so the line above prints
+`FALSE`. The GFC window fails the pre-set threshold and the 2008 and 2012 boundaries are
+dropped. City-wide establishments kept rising through 2008-12 (15,364 -> 16,091); growth
+slowed rather than dipped.
+
+**Caveat:** carried-forward survey years could flatten a real dip.
 
 # 3. Drop the tiny combos
 
@@ -182,8 +233,219 @@ features_all |>
 (tiny combos are many but small). Industries like Mining and Agriculture will lose most
 of their combos; say so in the report ("too small to cluster reliably").
 
+**Check (replication):** the three-window rebuild should reproduce the earlier combo counts,
+because `MIN_EST` uses each combo's average across all years, not the windows. Expect 153
+combos covering 97.7% of establishments, and city totals of 12,139 (2002), 16,768 (2018),
+13,828 (2022) and 14,338 (2024). The last line counts kept combos with a zero at a window
+endpoint, which is where `log(x + 1)` would differ from `log(x)`.
+
+```{r replication-check}
+nrow(features)                                              
+sum(features$mean_est) / sum(features_all$mean_est) * 100   
+
+panel |> group_by(year) |> summarise(city_total = sum(est)) |>
+  filter(year %in% c(2002, 2018, 2022, 2024))               
+
+sum(apply(features[, c("y2002", "y2018", "y2022", "y2024")] == 0, 1, any))
+```
+
 **Try later:** set `MIN_EST <- 5` at the top and re-run. If the clusters tell the same
 story, write "results were robust to the size threshold".
+
+# 3b. Rule-based classification (primary method)
+
+Each combo is labelled with one of five classes, using the direction of growth in each of
+the three windows. A window is **+** if growth is above +1% a year, **-** if below -1% a year,
+and **flat** otherwise. **Recovered** means the total gain over 2022-24 is at least the total
+loss over 2018-22; in log rates, 2 x g_recovery >= -4 x g_covid.
+
+**Where the classes come from:** the research question (declining / recovering / growing) and
+the interim's three stories (existing decline, temporary setback, incomplete recovery).
+
+| Class | Source |
+|---|---|
+| Stable or growing | RQ: "growing" |
+| Covid setback, Recovered | Interim: "temporary setback" |
+| Covid setback, Recovering | Interim: "incomplete recovery"; RQ: "recovering" |
+| Covid setback, No recovery yet | RQ: "declining", applied after the COVID shock |
+| Long-run decline | Interim: "existing decline" |
+
+**Revised after a first run (state this in the report).** A first version used five predefined
+stories as written. 82 of 153 combos (54%) fit none of them, above the pre-set limit of 10%.
+The main gap was combos still falling after COVID, so that class was added and the others
+widened to cover every pattern. No combo is left unlabelled.
+
+**Rules, checked in order (a combo takes the first class it matches):**
+
+| Order | Class | Rule (2002-18, 2018-22, 2022-24) |
+|---|---|---|
+| 1 | Long-run decline | 2002-18 is - (any COVID, any recovery) |
+| 2 | Covid setback, Recovered | 2018-22 is -, 2022-24 is +, recovered |
+| 3 | Covid setback, Recovering | 2018-22 is -, 2022-24 is +, not recovered |
+| 4 | Covid setback, No recovery yet | 2018-22 is - and 2022-24 is - or flat; or + / flat / - |
+| 5 | Stable or growing | everything else (long run not -, no fall in 2018-22) |
+
+**Notes for the report:**
+
+- Long-run decline includes combos that are rebounding since 2022 (pattern - / any / +).
+- Judgement call: + / flat / - (grew in the long run, flat through COVID, falling since) is
+  placed in "Declining since COVID".
+- "Stable or growing" includes some combos that are flat, or slightly falling since 2022,
+  but were not knocked down by COVID.
+
+**Set before running:** flat band +/-1% a year. Sensitivity: re-label with bands of +/-0.5% and
++/-1.5%. If more than `SENS_MAX` of combos change class at either band, the labels are
+reported as fragile.
+
+```{r rules}
+FLAT_BAND  <- 1            # % per year
+SENS_BANDS <- c(0.5, 1.5)  # % per year
+SENS_MAX   <- 0.20         # CONFIRM BEFORE RUNNING: labels are fragile if more than this share changes
+
+class_levels <- c("Stable or growing", "Covid setback, Recovered", "Covid setback, Recovering",
+                  "Covid setback, No recovery yet", "Long-run decline")
+
+# Direction of one window: "+", "-" or "0" (flat), judged on % change per year
+direction <- function(g, band = FLAT_BAND) {
+  pct <- (exp(g) - 1) * 100
+  case_when(pct > band ~ "+", pct < -band ~ "-", TRUE ~ "0")
+}
+
+# Reusable for the grants track: give it the three window growth rates.
+# case_when takes the first rule that matches, so the order matters.
+classify_story <- function(g_long, g_covid, g_recovery, band = FLAT_BAND) {
+  L <- direction(g_long, band); C <- direction(g_covid, band); R <- direction(g_recovery, band)
+  recovered <- 2 * g_recovery >= -4 * g_covid   # window lengths: 2 and 4 years
+  out <- case_when(
+    L == "-"                           ~ "Long-run decline",
+    C == "-" & R == "+" &  recovered   ~ "Covid setback, Recovered",
+    C == "-" & R == "+" & !recovered   ~ "Covid setback, Recovering",
+    C == "-"                           ~ "Covid setback, No recovery yet",
+    L == "+" & C == "0" & R == "-"     ~ "Covid setback, No recovery yet",   # judgement call
+    TRUE                               ~ "Stable or growing"
+  )
+  factor(out, levels = class_levels)
+}
+
+features <- features |>
+  mutate(story   = classify_story(g_long, g_covid, g_recovery),
+         pattern = paste0(direction(g_long), direction(g_covid), direction(g_recovery)))
+
+stopifnot(!any(is.na(features$story)))   # every combo gets a class
+
+# How many combos, and what share of establishments, in each class?
+features |>
+  group_by(story, .drop = FALSE) |>
+  summarise(n_combos = n(), est = sum(mean_est), .groups = "drop") |>
+  mutate(pct_combos = round(n_combos / sum(n_combos) * 100, 1),
+         pct_est    = round(est / sum(est) * 100, 1))
+
+# Which patterns make up each class? (long run, COVID, recovery)
+features |> count(story, pattern) |> arrange(story, desc(n))
+
+to_pct <- function(g) (exp(g) - 1) * 100
+
+severity <- features |>
+  group_by(story) |>
+  summarise(
+    n_combos          = n(),
+    covid_median      = round(to_pct(median(g_covid)), 1),     # % per year, 2018-22
+    covid_worst       = round(to_pct(min(g_covid)), 1),
+    covid_mildest     = round(to_pct(max(g_covid)), 1),
+    recovery_median   = round(to_pct(median(g_recovery)), 1),  # % per year, 2022-24
+    pct_vs_2018       = round((sum(y2024) / sum(y2018) - 1) * 100, 1),
+    est_change_18_24  = sum(y2024) - sum(y2018),
+    .groups = "drop")
+severity
+
+p_severity <- features |>
+  mutate(covid = to_pct(g_covid), recovery = to_pct(g_recovery)) |>
+  ggplot(aes(covid, recovery, colour = story, size = mean_est)) +
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_vline(xintercept = 0, colour = "grey60") +
+  geom_point(alpha = 0.7) +
+  scale_colour_manual(values = class_cols) +
+  scale_size_area(max_size = 10, guide = "none") +
+  labs(title = "COVID fall vs recovery, by class",
+       subtitle = "One dot per combo; size = average establishments per year",
+       x = "Growth 2018–22 (% per year)", y = "Growth 2022–24 (% per year)", colour = NULL) +
+  theme_minimal() +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+p_severity
+save_plot(p_severity, "19_severity_scatter", w = 10, h = 7)
+```
+
+```{r rules-sensitivity}
+# Labels under each band
+map_dfr(c(SENS_BANDS[1], FLAT_BAND, SENS_BANDS[2]), \(b)
+  tibble(band  = b,
+         story = classify_story(features$g_long, features$g_covid, features$g_recovery, b))) |>
+  count(band, story, .drop = FALSE) |>
+  pivot_wider(names_from = band, values_from = n, names_prefix = "band_")
+
+# How many combos change class compared with +/-1%, and is that above SENS_MAX?
+sens <- map_dfr(SENS_BANDS, \(b) tibble(
+  band    = b,
+  changed = sum(classify_story(features$g_long, features$g_covid, features$g_recovery, b) !=
+                features$story)))
+sens |> mutate(pct_changed = round(changed / nrow(features) * 100, 1),
+               fragile     = changed / nrow(features) > SENS_MAX)
+
+# Largest combos per class, with 2018 / 2022 / 2024 counts
+features |> group_by(story) |> slice_max(mean_est, n = 3) |>
+  select(story, combo, y2018, y2022, y2024)
+
+# Share of each industry's and each area's establishments in each class
+class_share <- function(by) features |>
+  group_by({{ by }}, story, .drop = FALSE) |> summarise(est = sum(mean_est), .groups = "drop") |>
+  group_by({{ by }}) |> mutate(pct = round(est / sum(est) * 100)) |> select(-est) |>
+  pivot_wider(names_from = story, values_from = pct)
+class_share(anzsic_indusrty)
+class_share(clue_small_area)
+
+# Classification plots
+class_cols <- c("Stable or growing"              = blue,
+                "Covid setback, Recovered"       = "#9cc3f0",
+                "Covid setback, Recovering"      = "#f5b08f",
+                "Covid setback, No recovery yet" = orange,
+                "Long-run decline"               = "#7a1a1a")
+
+plot_class_share <- function(by, title, caption = NULL) {
+  dat <- features |>
+    group_by(unit = {{ by }}) |>
+    mutate(unit = paste0(unit, " (", n(), ")")) |>          # (n) = number of combos
+    group_by(unit, story) |>
+    summarise(est = sum(mean_est), .groups = "drop") |>
+    group_by(unit) |>
+    mutate(share    = est / sum(est),
+           not_back = sum(share[story %in% c("Covid setback, No recovery yet",
+                                             "Long-run decline")])) |>
+    ungroup()
+
+  ggplot(dat, aes(share, fct_reorder(unit, not_back), fill = story)) +
+    geom_col(position = position_stack(reverse = TRUE)) +
+    scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+    scale_fill_manual(values = class_cols, drop = FALSE) +
+    labs(title = title,
+         subtitle = "Share of establishments (average per year); (n) = number of combos",
+         caption = caption, x = NULL, y = NULL, fill = NULL) +
+    guides(fill = guide_legend(nrow = 2)) +
+    theme_minimal() +
+    theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+}
+
+p_class_ind <- plot_class_share(anzsic_indusrty, "Classification by industry",
+  caption = "Agriculture not shown: no combo averages 10+ establishments a year. Mining = CBD only.")
+p_class_ind
+save_plot(p_class_ind, "17_class_by_industry", w = 12, h = 7)
+
+p_class_area <- plot_class_share(clue_small_area, "Classification by area")
+p_class_area
+save_plot(p_class_area, "18_class_by_area", w = 12, h = 7)
+```
+
+**Result:** 
+at ±1%, 28 combos are stable or growing, 13 are Covid setback, Recovered, 34 are Covid setback, Recovering, 44 are Covid setback, No recovery yet, and 34 are in long-run decline. The three Covid setback classes cover 91 combos and about 78% of establishments. The labels are not fragile: 9 combos (5.9%) change class at ±0.5% and 11 (7.2%) at ±1.5%, below the pre-set 20% threshold. Long-run decline is the most sensitive class (38 combos at ±0.5%, 26 at ±1.5%), because many 16-year growth rates sit close to ±1% a year.
 
 # 4. Look at the features before clustering
 
@@ -203,8 +465,9 @@ p_feat_hist
 save_plot(p_feat_hist, "01_feature_histograms", w = 11, h = 4)
 ```
 
-**Check:** the COVID window should sit mostly left of zero and be wider than the others.
-That's exactly why we standardise in Step 5.
+**Check:** the COVID window should sit mostly left of zero. The 2-year recovery window is
+expected to be the most spread out (shortest window, so the noisiest). The windows have
+different centres and spreads, which is exactly why we standardise in Step 5.
 
 ```{r explore-corr, fig.width = 6, fig.height = 5}
 corr_long <- cor(features[, feature_cols]) |>
@@ -216,7 +479,7 @@ p_corr <- ggplot(corr_long, aes(var1, var2, fill = r)) +
   geom_tile(colour = "white") +
   geom_text(aes(label = round(r, 2)), size = 3.5) +
   scale_fill_gradient2(low = red, mid = "white", high = blue, limits = c(-1, 1)) +
-  labs(title = "Correlation between the five growth windows", x = NULL, y = NULL) +
+  labs(title = "Correlation between the three growth windows", x = NULL, y = NULL) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         plot.title = element_text(face = "bold"))
@@ -233,11 +496,12 @@ are normal (a big boom is often followed by a fall back).
 features |>
   mutate(across(all_of(feature_cols), ~ as.numeric(scale(.x)), .names = "z_{.col}")) |>
   filter(if_any(starts_with("z_"), ~ abs(.x) > 3)) |>
-  select(combo, mean_est, y2002, y2024, all_of(feature_cols)) |>
+  select(combo, mean_est, y2002, y2018, y2022, y2024, all_of(feature_cols)) |>
   arrange(desc(mean_est))
 ```
 
-**Check:** expect Docklands combos here (it started from almost nothing in 2002).
+**Check:** previously Docklands combos showed up here (it started from almost nothing in 2002);
+confirm whether that still holds on the three windows.
 k-means is sensitive to outliers, so note which combos these are. If one of them ends up
 alone in its own cluster, that is a sign it's an outlier, not a real segment.
 
@@ -259,6 +523,10 @@ clust_data |>
 # 6. How many clusters? (elbow, silhouette, gap)
 
 No sampling needed like in GA_2: we only have ~150 rows.
+
+**Re-check needed:** "diagnostics inconclusive" was concluded on the old five-window features.
+Re-read the three plots below and record whether it still holds. This is the evidence for using
+rule-based classification as the primary method and clustering as a check.
 
 ```{r diag-elbow, fig.width = 7, fig.height = 4.5}
 set.seed(123)
@@ -295,7 +563,7 @@ can explain, and **write down why** in the report.
 # 7. Fit k-means and check it's stable
 
 ```{r choose-k}
-K <- 4
+K <- 5 # one cluster per rule-based class
 ```
 
 ```{r fit}
@@ -304,7 +572,9 @@ km <- kmeans(clust_data, centers = K, nstart = 50, iter.max = 50)
 
 # k-means numbers clusters randomly. Re-number them so cluster 1 = weakest overall
 # growth and cluster K = strongest. This keeps labels the same every time you re-run.
-overall_growth <- rowSums(features[, feature_cols] * c(6, 4, 6, 4, 2)[col(features[, feature_cols])])
+# Overall growth = total log change over 2002-24: each window's rate times its length in years.
+window_years   <- c(16, 4, 2)   # same order as feature_cols
+overall_growth <- as.vector(as.matrix(features[, feature_cols]) %*% window_years)
 cluster_order  <- tapply(overall_growth, km$cluster, mean) |> rank()
 cluster_vec    <- as.integer(cluster_order[as.character(km$cluster)])
 
@@ -323,6 +593,8 @@ p_sil_fit <- fviz_silhouette(sil, print.summary = FALSE) +
 p_sil_fit
 save_plot(p_sil_fit, "06_silhouette_fit")
 ```
+
+
 
 **Understand:** each bar is one combo. Bars below zero are combos that sit closer to a
 different cluster than their own ("fence-sitters"). A few are normal; lots of them in one
@@ -364,9 +636,55 @@ Rough guide: above 0.8 very stable, 0.6–0.8 reasonably stable, below 0.5 shaky
 In the PAM table, each k-means cluster should mostly map onto one PAM cluster (the column
 order may differ, that's fine).
 
+## 7b. Do the clusters line up with the rule-based classes?
+
+Clustering is a check on the rules, not a replacement. For each class, we look at how its
+combos spread across clusters, and at overall agreement (ARI). K = 5 is the direct test
+(one cluster per class); K = 3 and 4 are secondary. No threshold is set: the results are
+described, not labelled as "supported" or "not supported".
+
+```{r compare-rules}
+to_pct <- function(g) (exp(g) - 1) * 100
+
+compare_k <- function(k) {
+  set.seed(123)   # same settings as the main fit, so K = 5 reproduces it
+  cl  <- kmeans(clust_data, centers = k, nstart = 50, iter.max = 50)$cluster
+  tab <- table(class = features$story, cluster = cl)
+  list(
+    counts    = tab,
+    row_pct   = round(prop.table(tab, 1) * 100),          # % of each class in each cluster
+    top_share = tibble(class           = rownames(tab),
+                       n               = as.vector(rowSums(tab)),
+                       top_cluster     = colnames(tab)[apply(tab, 1, which.max)],
+                       top_cluster_pct = round(apply(tab, 1, max) / rowSums(tab) * 100)),
+    profile   = features |> mutate(cluster = cl) |> group_by(cluster) |>
+                  summarise(n = n(), across(all_of(feature_cols), ~ round(to_pct(median(.x)), 1))),
+    ari       = mclust::adjustedRandIndex(features$story, cl)
+  )
+}
+
+cmp <- map(c(3, 4, 5), compare_k) |> set_names(c("K3", "K4", "K5"))
+
+# Main test: K = 5
+cmp$K5$counts
+cmp$K5$row_pct
+cmp$K5$top_share
+cmp$K5$profile      # median % growth per year in each cluster, to read what each cluster is
+
+# Overall agreement at each K
+map_dfr(cmp, \(x) tibble(ARI = round(x$ari, 2)), .id = "K")
+```
+
+**Understand:** `top_cluster_pct` is the share of a class's combos that land in its most
+common cluster. 100% means the class is one cluster; low values mean the class is spread
+across several. The `profile` table shows what each cluster looks like, so you can see
+which class it resembles. ARI: 1 = identical groupings, 0 = no better than chance.
+
+**Result:** _(fill in after running)_
+
 # 8. PCA picture
 
-k-means used 5 numbers per combo; we can't draw 5 dimensions, so PCA squashes them into 2.
+k-means used 3 numbers per combo; PCA squashes them into 2 so we can draw them.
 
 ```{r pca}
 pca <- prcomp(clust_data)   # already standardised, so no extra scaling
@@ -381,7 +699,7 @@ round(pca$rotation[, 1:2], 2)
 ```
 
 **Understand the loadings:** big positive or negative numbers tell you what drives each
-axis. E.g. if PC1 loads strongly on pre-GFC and expansion growth, call it "long-run growth";
+axis. E.g. if PC1 loads strongly on the long-run window, call it "long-run growth";
 if PC2 is mostly the COVID window, call it "COVID sensitivity". Name them in the report
 instead of writing "Dim1 (xx%)".
 
@@ -472,8 +790,8 @@ save_plot(p_centroids, "10_cluster_report_cards", w = 9, h = 4)
 ```
 
 **Understand:** red = this cluster did worse than typical in that window, blue = better.
-Read across a row to get each cluster's story (e.g. "grew fast pre-GFC, crashed hardest in
-COVID, weak recovery").
+Read across a row to get each cluster's story (e.g. "grew fast in the long run, crashed hardest
+in COVID, weak recovery").
 
 ## 9b. Year: trajectory of each cluster
 
@@ -488,15 +806,12 @@ traj <- panel |>
   ungroup()
 
 p_traj <- ggplot(traj, aes(year, index, colour = cluster)) +
-  annotate("rect", xmin = 2008, xmax = 2010, ymin = -Inf, ymax = Inf,
-           fill = blue, alpha = 0.08) +
-  annotate("rect", xmin = 2020, xmax = 2022, ymin = -Inf, ymax = Inf,
-           fill = orange, alpha = 0.12) +
+  geom_vline(xintercept = c(2018, 2022), linetype = "dotted", colour = "grey50") +
   geom_hline(yintercept = 100, linetype = "dashed", colour = "grey50") +
   geom_line(linewidth = 1.1) +
   geom_point(size = 1.5) +
   labs(title = "Active establishments by cluster, 2002 = 100",
-       subtitle = "Shading: GFC 2008–2010 (blue), COVID 2020–2022 (orange)",
+       subtitle = "Dotted lines: window boundaries (2018, 2022)",
        x = "Census year", y = "Index (2002 = 100)", colour = "Cluster") +
   theme_minimal() +
   theme(plot.title = element_text(face = "bold"))
@@ -519,17 +834,14 @@ traj_median <- traj_combo |>
   summarise(rel = median(rel), .groups = "drop")
 
 p_spaghetti <- ggplot(traj_combo, aes(year, rel)) +
-  annotate("rect", xmin = 2008, xmax = 2010, ymin = -Inf, ymax = Inf,
-           fill = blue, alpha = 0.08) +
-  annotate("rect", xmin = 2020, xmax = 2022, ymin = -Inf, ymax = Inf,
-           fill = orange, alpha = 0.12) +
+  geom_vline(xintercept = c(2018, 2022), linetype = "dotted", colour = "grey50") +
   geom_line(aes(group = combo), colour = "grey70", alpha = 0.5) +
   geom_line(data = traj_median, colour = red, linewidth = 1.3) +
   geom_hline(yintercept = 100, linetype = "dashed") +
   facet_wrap(~ cluster, labeller = label_both) +
   coord_cartesian(ylim = c(0, 250)) +
   labs(title = "Every combo's path, grouped by cluster",
-       subtitle = "Grey = one area-industry combo; red = cluster median. 100 = that combo's 2002–24 average",
+       subtitle = "Grey = one area-industry combo; red = cluster median; dotted = window boundaries (2018, 2022). 100 = that combo's 2002–24 average",
        x = "Census year", y = "Establishments (% of own average)") +
   theme_minimal() +
   theme(plot.title = element_text(face = "bold"))
@@ -714,8 +1026,8 @@ map_dfr(c(5, 15, 20), \(m) tibble(
 
 # (b) Time windows: shift the endpoints a year (also helps with the carried-forward years)
 features_shift <- features |> mutate(
-  g_pre_gfc  = ann_log_change(y2002, y2009, 7), g_gfc   = ann_log_change(y2009, y2013, 4),
-  g_expand   = ann_log_change(y2013, y2019, 6), g_covid = ann_log_change(y2019, y2022, 3),
+  g_long     = ann_log_change(y2002, y2019, 17),
+  g_covid    = ann_log_change(y2019, y2022, 3),
   g_recovery = ann_log_change(y2022, y2024, 2))
 compare_to_base(run_km(features_shift))
 
@@ -751,7 +1063,8 @@ runs <- list(
   ward         = setNames(cutree(hc, K), features$combo)
 )
 
-# In each run, find the cluster holding most of our cluster-1 combos, and flag its members
+# In each run, find the cluster holding most of our cluster-1 combos, and flag its members.
+# Assumes cluster 1 (weakest overall growth) is the decliner group: confirm on the three-window fit.
 flag_decliners <- function(new) {
   b1 <- intersect(names(base)[base == 1], names(new))
   target <- as.integer(names(which.max(table(new[b1]))))
