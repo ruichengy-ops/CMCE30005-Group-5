@@ -19,29 +19,26 @@ How were different industries, areas, or business sizes performing from 2002-202
 
 ### Objectives
 
-1. Measure how the number of active establishments and jobs has changed from 2002-2024 across 13 CLUE areas, 19 ANZSIC sectors, and 4 business-size categories.
-2. Compare each CLUE area's industry mix and distribution of business sizes, identifying segments at risk and recovery patterns.
+1. Explore the data for a reliable measure
+2. Describe each segment's path with auditable rules
+3. Forecast whether at-risk segments may return to 2018 levels
+4. Recommend existing policy tools that fit each segment.
 
 ### Scope
 
-- Temporal: 2002–2024 annual trends
-- Geographic: 13 CLUE areas
-- Industry: 19 ANZSIC sectors
-- Business size: Non-employing, Small, Medium, Large
-- Methods: Descriptive analytics, trend regression, clustering
-- Primary outcome: Active establishments (due to jobs data suppression constraints)
+- Identify who (which segment) is declining, recovering or stalled since COVID
+- Identify where and how decision makers may act. 13 CLUE areas, 19 industries, 4 business sizes, with what kind of policy.
+- Whether at-risk segments may recover (forecast)
+
 
 ### Out of Scope
 
-- Prescribing specific infrastructure projects or budgets
-- Implementing or evaluating policy outcomes
-- Explaining why businesses open, close, or move
-- Infrastructure development levels across areas
-- Seasonal patterns (annual snapshot data only)- Prescribing specific infrastructure projects or budgets
-- Implementing or evaluating policy outcomes
-- Explaining why businesses open, close, or move
-- Infrastructure development levels across areas
-- Seasonal patterns (annual snapshot data only)
+- Employment-related decisions (jobs data mostly suppressed)
+- Why businesses open, close or move (no causal data)
+- Past policy outcomes or budgets (no policy data)
+- Seasonal swings or post-2024 conditions (data ends 2024)
+
+
 
 ---
 
@@ -69,19 +66,39 @@ How were different industries, areas, or business sizes performing from 2002-202
 
 ### Key Variables
 
-- **Total Active Establishments**: Count of operating businesses per year (excludes vacant premises)
-- **Total Jobs**: Employment by segment (59% suppressed for Large; 31% for Medium businesses)
-- **Vacancy Rates**: Derived from address-level file to detect economic distress
-- **Growth Rates for Active Establishments/Jobs**: Derived from time series of our first 2 Key Variables
+- **Total Active Establishments**:
+  - Count of operating businesses per year (excludes vacant premises)
+- **Total Jobs**:
+  - Employment by segment
+    - 59% suppressed for Large;
+    - 31% for Medium businesses;
+    - 14% for Small businesses)
+  - Set aside
+- **Vacancy Rates**:
+  - Derived from address-level file to detect economic distress;
+  - Measured by area
+- **Growth Rates for Active Establishments/Jobs**:
+  - Derived from time series of our first 2 Key Variables
 
 ### Data Quality Issues & Limitations
 
-- **Jobs suppression**: Large (59%), Medium (31%), Small (14%) — limits jobs-based vulnerability analysis
-- **Missing geolocations**: 4,785 records (0.04%, concentrated 2016/Docklands)
-- **ANZSIC mapping**: 945 truncated codes manually corrected; 433 classes mapped to 19 divisions
-- **Annual aggregation**: Census is an annual snapshot; no seasonal patterns detectable
+- **Jobs suppression**
+  - Large (59%)
+  - Medium (31%)
+  - Small (14%)
+  — limits jobs-based vulnerability analysis
+- **Missing geolocations**
+  - 4,785 records(0.04%, concentrated 2016/Docklands)
+- **ANZSIC mapping**:
+  - 945 truncated codes manually corrected
+  - 433 classes mapped to 19 divisions
+- **Annual aggregation**:
+  - Census is an annual snapshot
+  - no seasonal patterns detectable
 
-**Implication**: Analysis prioritises active establishments as primary outcome, supported by vacancy rates and growth metrics.
+**Implication**
+1. Active establishments are the best measure of the City's business climate.
+2. The comparison period changes the story. 
 
 ### Exploratory Data Analysis (EDA) Findings
 
@@ -137,4 +154,4 @@ R packages: readr, dplyr, tidyr, ggplot2; Version control: Git/GitHub
 
 ---
 
-*Last updated: [25/09/2002]*
+*Last updated: [25/10/2026]*
