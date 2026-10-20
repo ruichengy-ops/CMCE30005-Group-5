@@ -72,7 +72,7 @@ How were different industries, areas, or business sizes performing from 2002-202
   - Employment by segment
     - 59% suppressed for Large;
     - 31% for Medium businesses;
-    - 14% for Small businesses)
+    - 14% for Small businesses
   - Set aside
 - **Vacancy Rates**:
   - Derived from address-level file to detect economic distress;
