@@ -120,6 +120,11 @@ How were different industries, areas, or business sizes performing from 2002-202
 - **Predictive modelling**: Last-observation vs. linear-trend forecasts (evaluation: 2012–2022, test: 2024)
 - **Clustering**: Area-industry combinations to identify additional vulnerability patterns
 
+### Analytical Approach
+- **Descriptive analysis**
+  - City Planning: aggregates business sizes into area × industry combinations
+  - Financial: aggregates industries into area × business-size combinations
+
 ### Validation Approach
 
 - Visual trend assessment against known economic events (GFC, COVID peaks/troughs)
@@ -130,6 +135,18 @@ How were different industries, areas, or business sizes performing from 2002-202
 ### Tools Used
 
 R packages: readr, dplyr, tidyr, ggplot2; Version control: Git/GitHub
+
+---
+
+## Key Findings & Recommendations
+
+- Small establishments and business support
+  - Use Business Concierge as an entry point for diagnosing small operators’ needs and directing them to suitable advice, permit assistance or support
+- Retail premises and shopfront support
+  - Consider Shopfront Business Grants for eligible projects where fit-out costs impede occupation of genuinely vacant premises
+- Office demand and building assessment
+  - Investigate office demand where finance and professional-service establishments continue to decline
+  - For persistently underused buildings, apply the Adaptive Reuse Guidelines to compare retaining and upgrading offices with feasible alternative uses (City of Melbourne, 2024)
 
 ---
 
