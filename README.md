@@ -159,7 +159,7 @@ R packages: readr, dplyr, tidyr, ggplot2; Version control: Git/GitHub
 - Few changed combinations do not guarantee stable weighted composition
 - Self-selection, different underlying trends or spillovers could still bias estimates; existing CLUE data cannot estimate this effect
 
-### ⏳ Remaining Work
+### ⏳ Remaining Work 
 
 1. Implement forecasting evaluation (last-observation vs. linear models; 2012–2022 holdout, 2024 test period)
 2. Execute area-industry clustering to synthesise findings across three dimensions
