@@ -150,15 +150,14 @@ R packages: readr, dplyr, tidyr, ggplot2; Version control: Git/GitHub
 
 ---
 
-## Analysis Progress & Next Steps
+## Limitations & Next Steps
 
-### ✅ Completed
+### 🔒 Limitations
 
-- Data cleaning, validation, and exploratory data analysis
-- Establishment trend visualisation by CLUE area, industry, business size
-- Vacancy rate time-series and heatmap analysis
-- Disruption comparison analysis (GFC vs. COVID recovery patterns)
-- Identification of key at-risk segments (e.g., Professional Services –25% 2018–2024)
+- Establishment counts measure operating locations, not employment, profitability or business survival
+- Annual labels are not independent annual surveys (CLUE updates businesses at least biennially)
+- Few changed combinations do not guarantee stable weighted composition
+- Self-selection, different underlying trends or spillovers could still bias estimates; existing CLUE data cannot estimate this effect
 
 ### ⏳ Remaining Work
 
