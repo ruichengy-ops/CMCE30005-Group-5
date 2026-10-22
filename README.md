@@ -122,8 +122,12 @@ How were different industries, areas, or business sizes performing from 2002-202
 
 ### Analytical Approach
 - **Descriptive analysis**
-  - City Planning: aggregates business sizes into area × industry combinations
-  - Financial: aggregates industries into area × business-size combinations
+  - Business size: the loss is a small-business loss
+  - Industry: shops are coming back but offices are not
+  - Area: the CBD carries most of the loss
+- **Predictive Analysis**
+  - 
+
 
 ### Validation Approach
 
@@ -150,21 +154,20 @@ R packages: readr, dplyr, tidyr, ggplot2; Version control: Git/GitHub
 
 ---
 
-## Limitations & Next Steps
+## Limitations & Future Works
 
 ### 🔒 Limitations
 
-- Establishment counts measure operating locations, not employment, profitability or business survival
-- Annual labels are not independent annual surveys (CLUE updates businesses at least biennially)
+- CLUE block boundaries were realigned in 2025
+- Active establishment counts treat every operating location equally, which cannot show the full employment or economic impact of changes
 - Few changed combinations do not guarantee stable weighted composition
 - Self-selection, different underlying trends or spillovers could still bias estimates; existing CLUE data cannot estimate this effect
 
-### ⏳ Remaining Work 
+### ⏳ Future Works
 
-1. Implement forecasting evaluation (last-observation vs. linear models; 2012–2022 holdout, 2024 test period)
-2. Execute area-industry clustering to synthesise findings across three dimensions
-3. Consolidate results into strategic vulnerability priorities for City of Melbourne
-4. Generate final visualisations and policy-relevant summary tables
+1. Check boundary correspondence and harmonise geography before adding later releases
+2. Policy effectiveness needs separate evaluation
+3. Report uncertainty and delivery costs
 
 **Timeline:** Weeks 9–11 modelling; Week 12 final report (23 October 2026)
 
