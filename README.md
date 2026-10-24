@@ -9,9 +9,10 @@
 
 ---   
 
-## Business Problem
+## Business Problems
 
-How were different industries, areas, or business sizes performing from 2002-2024 primary by their number of active establishments and which of these segments may be of concern to City of Melbourne decision-makers moving forward?
+1. How have industries, areas and business sizes performed before, during and after COVID, by active establishments?
+2. Which segments are of most concern to City of Melbourne policymakers now?
 
 ---
 
@@ -24,11 +25,12 @@ How were different industries, areas, or business sizes performing from 2002-202
 3. Forecast whether at-risk segments may return to 2018 levels
 4. Recommend existing policy tools that fit each segment.
 
+
 ### Scope
 
 - Identify who (which segment) is declining, recovering or stalled since COVID
 - Identify where and how decision makers may act. 13 CLUE areas, 19 industries, 4 business sizes, with what kind of policy.
-- Whether at-risk segments may recover (forecast)
+- Two-year establishment forecasts and their value for decline monitoring 
 
 
 ### Out of Scope
@@ -36,7 +38,7 @@ How were different industries, areas, or business sizes performing from 2002-202
 - Employment-related decisions (jobs data mostly suppressed)
 - Why businesses open, close or move (no causal data)
 - Past policy outcomes or budgets (no policy data)
-- Seasonal swings or post-2024 conditions (data ends 2024)
+- Seasonal forecasting and verification of post-2024 outcomes 
 
 
 
@@ -80,13 +82,13 @@ How were different industries, areas, or business sizes performing from 2002-202
 - **Growth Rates for Active Establishments/Jobs**:
   - Derived from time series of our first 2 Key Variables
 
-### Data Quality Issues & Limitations
+### Data Quality Issues & Implications
 
 - **Jobs suppression**
   - Large (59%)
   - Medium (31%)
   - Small (14%)
-  — limits jobs-based vulnerability analysis
+  — Limits jobs-based vulnerability analysis
 - **Missing geolocations**
   - 4,785 records(0.04%, concentrated 2016/Docklands)
 - **ANZSIC mapping**:
@@ -94,7 +96,7 @@ How were different industries, areas, or business sizes performing from 2002-202
   - 433 classes mapped to 19 divisions
 - **Annual aggregation**:
   - Census is an annual snapshot
-  - no seasonal patterns detectable
+  - No seasonal patterns detectable
 
 **Implication**
 1. Active establishments are the best measure of the City's business climate.
@@ -122,19 +124,39 @@ How were different industries, areas, or business sizes performing from 2002-202
 
 ### Analytical Approach
 - **Descriptive analysis**
-  - Business size: the loss is a small-business loss
-  - Industry: shops are coming back but offices are not
-  - Area: the CBD carries most of the loss
+  - Business size
+    - The loss is a small-business loss
+    - Small businesses are down everywhere, but stalled in some areas
+  - Industry
+    - Shops and hospitality are coming back
+    - Office-based industries are not recovering
+    - Some industries were shrinking before COVID
+  - Area
+    - The CBD carries most of the loss
+    - Southbank and Melbourne (Remainder) are still falling
+    - West Melbourne (Industrial) was already declining
+    - Area totals can hide small-business stalls
 - **Predictive Analysis**
-  - 
+  - Multiple regression
+    - A clear linear model whose relationships can be explained
+  - Random forests
+    - Allows more complex relationships in the historical data
+  - TabPFN
+    - A pretrained approach designed for small tabular datasets
+  - Naive benchmark
+    - Predicts no change, acts as our control/benchmark
+
 
 
 ### Validation Approach
 
-- Visual trend assessment against known economic events (GFC, COVID peaks/troughs)
-- Cross-validation of vacant vs. active establishment counts to detect data anomalies
-- Sensitivity testing with alternative disruption windows (±1 year)
-- MAE and RMSE metrics for forecast error measurement; residual plot inspection
+| Method | Assumption | How we validated/What validates it |
+| ------- | ----------| ----------------------------------- |
+| Rule-based classes | Our 5 Classes are credible | Robustness: re-ran the rules at ±0.5% and ±1.5%, with classes fragile if more than 20% of segments change class. Policy grounding: each class matches a situation the City's existing policies already respond to |
+| Ignoring segments with <10 establishments | Segments under 10 establishments are too small to classify reliably |Dropping them still keeps 97.7% and 99.9% of establishments (Table 5) |
+| Forecasting | Past data carry enough signal to forecast two years ahead | Explored further in Section 5 |
+
+
 
 ### Tools Used
 
