@@ -123,7 +123,7 @@
 - **Clustering**: Area-industry combinations to identify additional vulnerability patterns
 
 ### Analytical Approach
-- **Descriptive analysis**
+- **Descriptive Analysis**
   - Business size
     - The loss is a small-business loss
     - Small businesses are down everywhere, but stalled in some areas
@@ -156,23 +156,30 @@
 | Ignoring segments with <10 establishments | Segments under 10 establishments are too small to classify reliably |Dropping them still keeps 97.7% and 99.9% of establishments (Table 5) |
 | Forecasting | Past data carry enough signal to forecast two years ahead | Explored further in Section 5 |
 
-
-
-### Tools Used
-
-R packages: readr, dplyr, tidyr, ggplot2; Version control: Git/GitHub
-
 ---
 
 ## Key Findings & Recommendations
 
-- Small establishments and business support
-  - Use Business Concierge as an entry point for diagnosing small operators’ needs and directing them to suitable advice, permit assistance or support
-- Retail premises and shopfront support
-  - Consider Shopfront Business Grants for eligible projects where fit-out costs impede occupation of genuinely vacant premises
-- Office demand and building assessment
-  - Investigate office demand where finance and professional-service establishments continue to decline
-  - For persistently underused buildings, apply the Adaptive Reuse Guidelines to compare retaining and upgrading offices with feasible alternative uses (City of Melbourne, 2024)
+
+- Observed pattern 
+  - Small establishments
+    - 2,616 fewer than in 2018 (−20.4%); all 13 areas below 2018 in 2024
+  - Retail establishments
+    - 77 added after 2022, but still 18.1% below 2018 in 2024
+  - Finance and professional services
+    - Each about 25% below 2018 in 2024; both continued declining after 2022
+- Policy Option
+  - Business Concierge
+    - Free guidance and referrals for starting or growing a business; not a cash grant
+  - Shopfront Business Grants
+    - Eligible fit-outs to help viable businesses activate vacant premises (City of Melbourne, 2026d)
+  - Adaptive Reuse Guidelines
+    - For persistently underused buildings, assess other uses alongside retaining and upgrading offices
+- Evidence needed before action
+  - Current cash-flow pressures, fees and permit problems; business identity and eligibility for any subsequent programme
+  - Vacancy duration, lease conditions, local demand, financial viability and fit-out costs
+  - Actual occupancy and office demand; building suitability, planning requirements and costs
+
 
 ---
 
@@ -180,16 +187,17 @@ R packages: readr, dplyr, tidyr, ggplot2; Version control: Git/GitHub
 
 ### 🔒 Limitations
 
-- CLUE block boundaries were realigned in 2025
-- Active establishment counts treat every operating location equally, which cannot show the full employment or economic impact of changes
-- Few changed combinations do not guarantee stable weighted composition
-- Self-selection, different underlying trends or spillovers could still bias estimates; existing CLUE data cannot estimate this effect
+- Since CLUE block boundaries changed in 2025, the later releases require geographical checks before comparison with our 13-area results
+- Historical classifications are describing patterns rather than establishing their causes
+- Fewer establishments do not directly demonstrate financial distress or vacant buildings
+- Overall, the recommendations identify priorities for investigation, while current needs, programme eligibility and policy effectiveness still require separate evidence
 
 ### ⏳ Future Works
 
-1. Check boundary correspondence and harmonise geography before adding later releases
-2. Policy effectiveness needs separate evaluation
-3. Report uncertainty and delivery costs
+1. Future work should first reconsider the predictive task itself and build on earlier subgroup exploration
+2. A more focused question could concern one historical class or a particular area–industry combination
+3. Analysis afterwards should use comparable areas and periods and only information available at the forecast date
+4. Policy effectiveness requires separate evaluation
 
 **Timeline:** Weeks 9–11 modelling; Week 12 final report (23 October 2026)
 
