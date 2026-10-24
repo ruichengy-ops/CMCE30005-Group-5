@@ -153,8 +153,8 @@
 | Method | Assumption | How we validated/What validates it |
 | ------- | ----------| ----------------------------------- |
 | Rule-based classes | Our 5 Classes are credible | Robustness: re-ran the rules at ±0.5% and ±1.5%, with classes fragile if more than 20% of segments change class. Policy grounding: each class matches a situation the City's existing policies already respond to |
-| Ignoring segments with <10 establishments | Segments under 10 establishments are too small to classify reliably |Dropping them still keeps 97.7% and 99.9% of establishments (Table 5) |
-| Forecasting | Past data carry enough signal to forecast two years ahead | Explored further in Section 5 |
+| Ignoring segments with <10 establishments | Segments under 10 establishments are too small to classify reliably |Dropping them still keeps 97.7% and 99.9% of establishments |
+| Forecasting | Past data carry enough signal to forecast two years ahead | Explored further in analysis results |
 
 ---
 
@@ -199,8 +199,6 @@
 3. Analysis afterwards should use comparable areas and periods and only information available at the forecast date
 4. Policy effectiveness requires separate evaluation
 
-**Timeline:** Weeks 9–11 modelling; Week 12 final report (23 October 2026)
-
 ---
 
-*Last updated: [25/10/2026]*
+*Last updated: [24/10/2026]*
