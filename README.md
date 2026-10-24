@@ -145,8 +145,7 @@
     - A pretrained approach designed for small tabular datasets
   - Naive benchmark
     - Predicts no change, acts as our control/benchmark
-
-
+   
 
 ### Validation Approach
 
@@ -155,6 +154,40 @@
 | Rule-based classes | Our 5 Classes are credible | Robustness: re-ran the rules at ±0.5% and ±1.5%, with classes fragile if more than 20% of segments change class. Policy grounding: each class matches a situation the City's existing policies already respond to |
 | Ignoring segments with <10 establishments | Segments under 10 establishments are too small to classify reliably |Dropping them still keeps 97.7% and 99.9% of establishments |
 | Forecasting | Past data carry enough signal to forecast two years ahead | Explored further in analysis results |
+
+---
+
+
+## Analysis & Results
+### Descriptive Analysis
+  - Distribution of establishments across the 5 classes
+    - About 75% sit in segments still below their 2018 level (Recovering and No recovery), and only 2-5% have fully recovered
+    - A further 4-14% were already shrinking before COVID
+    - The classes are robust: at most 10.9% of segments changed class under the alternative bands, well within our 20% limit
+  - Tendency
+    - The loss is concentrated in small businesses, office-based industries and the CBD
+    - Customer-facing industries are recovering
+    - some segments were declining before COVID
+### Predictive Analysis
+  - Predicting no change had the lowest average MAE across the six development years and in the separate 2024 assessment, in both tracks
+  - Although these lists sometimes outperformed rankings based on recent changes or the expected hit rate from random selection, no model maintained a stable advantage
+  - Some models indeed performed better in individual years, but this was insufficient to establish a reliable basis for policy targeting
+  - The forecasts did not improve on the no-change benchmark
+  - We’ve highlighted two possible reasons explained below
+     
+#### Data Preparation and Predictive Approach
+  - Forecasting every eligible combination may have been too broad for a specific monitoring need
+  - Different paths of decline or recovery may require different questions and information
+  - Although area and industry or size were included, our preparation may not adequately represent these different business processes
+  - This is a possible explanation, though not a demonstrated cause of the results
+
+#### Data Limitations
+  - The historical data from 2002 to 2024 provides only nine complete two-year periods when making forecasts for 2026
+  - Repeated combinations cannot represent independent economic trajectorie
+  - Those inputs mainly describe past counts without other factors such as local demand or operating pressures
+  - More observations or different inputs might help, but this remains untested
+
+
 
 ---
 
